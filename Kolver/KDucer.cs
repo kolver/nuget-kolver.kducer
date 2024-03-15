@@ -1,8 +1,6 @@
 ﻿using System;
 using System.Collections.Concurrent;
 using System.Net;
-using System.Net.Sockets;
-using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -20,6 +18,11 @@ namespace Kolver
         /// this option is ignored when using RunScrewdriverUntilResultAsync
         /// </summary>
         public bool lockScrewdriverUntilResultsProcessed = false;
+        /// <summary>
+        /// if true, the timestamp of the result from the controller is replaced with the local machine timestamp
+        /// this is recommended because the clock on the KDU does not track timezones, annual daylight time changes, etc
+        /// </summary>
+        public bool replaceResultTimestampWithLocalTimestamp = true;
 
         private ReducedModbusTcpClientAsync mbClient;
         private CancellationToken kduCommsCancellationToken;

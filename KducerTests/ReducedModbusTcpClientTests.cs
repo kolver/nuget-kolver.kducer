@@ -1,4 +1,5 @@
 using Kolver;
+using System.Collections;
 using System.Net;
 
 namespace KducerTests
@@ -41,14 +42,8 @@ namespace KducerTests
         [Timeout(3000)]
         public async Task TestConnectToDeadKdu()
         {
-            using ReducedModbusTcpClientAsync kdu = new ReducedModbusTcpClientAsync(IPAddress.Parse(TestConstants.OFF_OR_DC_KDU_IP));
-            CancellationTokenSource src = new CancellationTokenSource();
-            Task connectionAttempt = kdu.ConnectAsync(src.Token);
-            Assert.IsFalse(kdu.Connected());
-            await Task.Delay(10);
-            Assert.IsFalse(kdu.Connected());
-            await connectionAttempt;
-            Assert.IsTrue(connectionAttempt.IsCompleted);
+            using ReducedModbusTcpClientAsync kdu = new ReducedModbusTcpClientAsync(IPAddress.Parse(TestConstants.OFF_OR_DC_KDU_IP), 1000);
+            await Assert.ThrowsExceptionAsync<System.TimeoutException>(async () => await kdu.ConnectAsync(new CancellationToken()));
         }
 
         [TestMethod]
@@ -112,7 +107,7 @@ namespace KducerTests
 
         [TestMethod]
         [Timeout(5000)]
-        public async Task TestGetResultAfterManuallyRunScrewdriverAnd()
+        public async Task TestGetResultAfterManuallyRunScrewdriver()
         {
             using Kducer kdu = Kducer.CreateKducerAndStartAsyncComms(IPAddress.Parse(TestConstants.REAL_LIVE_KDU_IP), new CancellationToken());
             kdu.lockScrewdriverUntilResultsProcessed = true;
@@ -120,4 +115,42 @@ namespace KducerTests
             Console.WriteLine(await kdu.GetResultAsync());
         }
     }
+
+    [TestClass]
+    public class KducerTighteningResultsTests
+    {
+        [TestMethod]
+        public void TestGetTorque()
+        {
+            byte[] res = new byte[] {
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x32,
+                0x00, 0x04, 0x00, 0x1E, 0xA2, 0xDD, 0x01, 0x73, 0x03, 0xE8,
+                0x00, 0x6E, 0x01, 0x2C, 0x00, 0x49, 0x00, 0x00, 0x00, 0x01,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x52, 0x00, 0x54,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x52, 0x00, 0x14, 0x00, 0x00,
+                0x00, 0x32, 0x00, 0x0B, 0x00, 0x00, 0x02, 0x58, 0x00, 0x00,
+                0x00, 0x22, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x18, 0x00, 0x03, 0x00, 0x0E, 0x00, 0x10,
+                0x00, 0x0E, 0x00, 0x2F, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x30, 0x34
+            };
+            KducerTighteningResult kdures = new(res);
+            Console.WriteLine(kdures.GetTorque());
+        }
+
+        [TestMethod]
+        public async Task TestGetTorque2()
+        {
+            using Kducer kdu = Kducer.CreateKducerAndStartAsyncComms(IPAddress.Parse(TestConstants.REAL_LIVE_KDU_IP), new CancellationToken());
+            Console.WriteLine("Manually run screwdriver until result...");
+            byte[] res = await kdu.GetResultAsync();
+            KducerTighteningResult kdures = new(res);
+            Console.WriteLine(kdures.GetTorque());
+        }
+    }
+
 }
