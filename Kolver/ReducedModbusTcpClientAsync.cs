@@ -56,12 +56,12 @@ namespace Kolver
 
                 if ( ++counter > (connectionAttemptTimeoutMs / cancellationCheckIntervalMs) )
                 {
-                    throw new TimeoutException($"Connection to {kduEndPoint.Address.ToString()} timed out");
+                    throw new TimeoutException($"Connection to {kduEndPoint.Address} timed out");
                 }
             }
         }
 
-        private async Task SendAllAsync(Socket socket, byte[] data)
+        private static async Task SendAllAsync(Socket socket, byte[] data)
         {
             int bytesSent = 0;
             while (bytesSent < data.Length)
@@ -74,7 +74,7 @@ namespace Kolver
                 bytesSent += nBytesActuallySent;
             }
         }
-        private async Task<byte[]> ReceiveAllAsync(Socket socket, int length)
+        private static async Task<byte[]> ReceiveAllAsync(Socket socket, int length)
         {
             byte[] data = new byte[length];
             int bytesReceived = 0;
@@ -90,7 +90,7 @@ namespace Kolver
             return data;
         }
 
-        private void ThrowIfBadMbap(byte[] requestMbap, byte[] responseMbap, int expectedLength)
+        private static void ThrowIfBadMbap(byte[] requestMbap, byte[] responseMbap, int expectedLength)
         {
             if (requestMbap.Length < 7 || responseMbap.Length < 7)
                 throw new ModbusException($"Invalid modbus response header. Request: {String.Join("",requestMbap)}, response header: {String.Join("", responseMbap)}");
@@ -103,12 +103,12 @@ namespace Kolver
                 requestMbap[6] != responseMbap[6])
                 throw new ModbusException($"Invalid modbus response header. Request: {String.Join("", requestMbap)}, response header: {String.Join("",responseMbap)}");
 
-            int length = IPAddress.NetworkToHostOrder(BitConverter.ToInt16(responseMbap, 4));
+            int length = TwoModbusBigendianBytesToUshort(responseMbap, 4);
             if ( length != (1+2)/*exception len is unit ID + 2*/ && length != expectedLength )
                 throw new ModbusException($"Invalid modbus response length. Request: {String.Join("", requestMbap)}, response header: {String.Join("",responseMbap)}");
         }
 
-        private bool ThrowIfBadResponse(byte[] request, byte[] responseData, int expectedLength)
+        private static bool ThrowIfBadResponse(byte[] request, byte[] responseData, int expectedLength)
         {
             if (request.Length < 9 || responseData.Length < 2)
                 throw new ModbusException($"Invalid modbus response. Request: {request}, response: {responseData}");
@@ -121,7 +121,7 @@ namespace Kolver
                     short exceptionCode = request[8];
                     // modbus exception
                     if (exceptionCode == 6)
-                        throw new ModbusException($"Received modbus exception code {exceptionCode}: modbus server busy. Request: {request}, response: {responseData}");
+                        throw new ModbusServerBusyException($"Received modbus exception code {exceptionCode}: modbus server busy. Request: {request}, response: {responseData}");
                     else
                         throw new ModbusException($"Received modbus exception code {exceptionCode}. Request: {request}, response: {responseData}");
                 }
@@ -143,11 +143,9 @@ namespace Kolver
             mbRequest[5] = 6; // Length
             mbRequest[7] = fc; // 3 = Read Holding Registers, 4 = Read Input Registers
 
-            mbRequest[8] = (byte)(startAddress >> 8);
-            mbRequest[9] = (byte)startAddress;
+            CopyUshortToBytesModbusBigendian(startAddress, mbRequest, 8);
 
-            mbRequest[10] = (byte)(numberOfRegisters >> 8);
-            mbRequest[11] = (byte)numberOfRegisters;
+            CopyUshortToBytesModbusBigendian(numberOfRegisters, mbRequest, 10);
 
             int expectedResponseLength = 1/*uID*/ + 1/*FC*/ + 1/*byteCnt*/ + numberOfRegisters * 2;
 
@@ -159,7 +157,7 @@ namespace Kolver
             // Verify
             ThrowIfBadMbap(responseMbap, responseMbap, expectedResponseLength);
 
-            int nBytesToRecieve = IPAddress.NetworkToHostOrder(BitConverter.ToInt16(responseMbap, 4)) - 1;
+            int nBytesToRecieve = TwoModbusBigendianBytesToUshort(responseMbap, 4) - 1;
 
             // Receive modbus response data
             byte[] responseData = await ReceiveAllAsync(kduSock, nBytesToRecieve).ConfigureAwait(false); ;
@@ -190,8 +188,7 @@ namespace Kolver
             mbRequest[5] = 6; // Length
             mbRequest[7] = 5; // write coils
 
-            mbRequest[8] = (byte)(address >> 8);
-            mbRequest[9] = (byte)address;
+            CopyUshortToBytesModbusBigendian(address, mbRequest, 8);
 
             if (value)
                 mbRequest[10] = 0xff;
@@ -206,7 +203,7 @@ namespace Kolver
             // Verify
             ThrowIfBadMbap(responseMbap, responseMbap, expectedResponseLength);
 
-            int nBytesToRecieve = IPAddress.NetworkToHostOrder(BitConverter.ToInt16(responseMbap, 4)) - 1;
+            int nBytesToRecieve = TwoModbusBigendianBytesToUshort(responseMbap, 4) - 1;
 
             // Receive modbus response data
             byte[] responseData = await ReceiveAllAsync(kduSock, nBytesToRecieve).ConfigureAwait(false); ;
@@ -224,11 +221,9 @@ namespace Kolver
             mbRequest[5] = 6; // Length
             mbRequest[7] = 6; // write single register
 
-            mbRequest[8] = (byte)(address >> 8);
-            mbRequest[9] = (byte)address;
+            CopyUshortToBytesModbusBigendian(address, mbRequest, 8);
 
-            mbRequest[10] = (byte)(value >> 8);
-            mbRequest[11] = (byte)value;
+            CopyUshortToBytesModbusBigendian(value, mbRequest, 10);
 
             int expectedResponseLength = 1/*uID*/ + 1/*FC*/ + 2/*addr*/ + 2/*val*/;
 
@@ -240,7 +235,7 @@ namespace Kolver
             // Verify
             ThrowIfBadMbap(responseMbap, responseMbap, expectedResponseLength);
 
-            int nBytesToRecieve = IPAddress.NetworkToHostOrder(BitConverter.ToInt16(responseMbap, 4)) - 1;
+            int nBytesToRecieve = TwoModbusBigendianBytesToUshort(responseMbap, 4) - 1;
 
             // Receive modbus response data
             byte[] responseData = await ReceiveAllAsync(kduSock, nBytesToRecieve).ConfigureAwait(false); ;
@@ -248,6 +243,27 @@ namespace Kolver
             ThrowIfBadResponse(mbRequest, responseData, expectedResponseLength);
 
             return;
+        }
+
+        private static ushort TwoModbusBigendianBytesToUshort(byte[] mbBytes, int index)
+        {
+            if (BitConverter.IsLittleEndian)
+                return (ushort)(mbBytes[index] << 8 | mbBytes[index + 1]);
+            else
+                return BitConverter.ToUInt16(mbBytes, index);
+        }
+        private static void CopyUshortToBytesModbusBigendian(ushort value, byte[] mbBytes, int index)
+        {
+            if (BitConverter.IsLittleEndian)
+            {
+                mbBytes[index] = (byte)(value >> 8);
+                mbBytes[index + 1] = (byte)value;
+            }
+            else
+            {
+                mbBytes[index] = (byte)value;
+                mbBytes[index + 1] = (byte)(value >> 8);
+            }
         }
     }
 
@@ -263,6 +279,23 @@ namespace Kolver
         }
 
         public ModbusException(string message, Exception inner)
+            : base(message, inner)
+        {
+        }
+    }
+
+    internal class ModbusServerBusyException : ModbusException
+    {
+        public ModbusServerBusyException()
+        {
+        }
+
+        public ModbusServerBusyException(string message)
+            : base(message)
+        {
+        }
+
+        public ModbusServerBusyException(string message, Exception inner)
             : base(message, inner)
         {
         }

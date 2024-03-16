@@ -1,5 +1,5 @@
 using Kolver;
-using System.Collections;
+using Microsoft.Extensions.Logging.Abstractions;
 using System.Net;
 
 namespace KducerTests
@@ -19,7 +19,7 @@ namespace KducerTests
         {
             using ReducedModbusTcpClientAsync kdu = new ReducedModbusTcpClientAsync(IPAddress.Parse(TestConstants.REAL_LIVE_KDU_IP), 100);
             Assert.IsFalse(kdu.Connected());
-            await kdu.ConnectAsync(new CancellationToken());
+            await kdu.ConnectAsync(CancellationToken.None);
             Assert.IsTrue(kdu.Connected());
         }
 
@@ -43,7 +43,7 @@ namespace KducerTests
         public async Task TestConnectToDeadKdu()
         {
             using ReducedModbusTcpClientAsync kdu = new ReducedModbusTcpClientAsync(IPAddress.Parse(TestConstants.OFF_OR_DC_KDU_IP), 1000);
-            await Assert.ThrowsExceptionAsync<System.TimeoutException>(async () => await kdu.ConnectAsync(new CancellationToken()));
+            await Assert.ThrowsExceptionAsync<System.TimeoutException>(async () => await kdu.ConnectAsync(CancellationToken.None));
         }
 
         [TestMethod]
@@ -52,9 +52,9 @@ namespace KducerTests
         {
             using ReducedModbusTcpClientAsync kdu = new ReducedModbusTcpClientAsync(IPAddress.Parse(TestConstants.REAL_LIVE_KDU_IP));
             Assert.IsFalse(kdu.Connected());
-            await kdu.ConnectAsync(new CancellationToken());
+            await kdu.ConnectAsync(CancellationToken.None);
             Assert.IsTrue(kdu.Connected());
-            await kdu.ConnectAsync(new CancellationToken());
+            await kdu.ConnectAsync(CancellationToken.None);
             Assert.IsTrue(kdu.Connected());
         }
 
@@ -63,7 +63,7 @@ namespace KducerTests
         public async Task TestReadHoldingRegisters()
         {
             using ReducedModbusTcpClientAsync kdu = new ReducedModbusTcpClientAsync(IPAddress.Parse(TestConstants.REAL_LIVE_KDU_IP));
-            await kdu.ConnectAsync(new CancellationToken());
+            await kdu.ConnectAsync(CancellationToken.None);
             Assert.IsTrue(kdu.Connected());
             Console.WriteLine(await kdu.ReadHoldingRegistersAsync(0, 12));
         }
@@ -73,7 +73,7 @@ namespace KducerTests
         public async Task TestReadInputRegisters()
         {
             using ReducedModbusTcpClientAsync kdu = new ReducedModbusTcpClientAsync(IPAddress.Parse(TestConstants.REAL_LIVE_KDU_IP));
-            await kdu.ConnectAsync(new CancellationToken());
+            await kdu.ConnectAsync(CancellationToken.None);
             Assert.IsTrue(kdu.Connected());
             Console.WriteLine(await kdu.ReadInputRegistersAsync(0, 12));
         }
@@ -83,7 +83,7 @@ namespace KducerTests
         public async Task TestWriteCoil()
         {
             using ReducedModbusTcpClientAsync kdu = new ReducedModbusTcpClientAsync(IPAddress.Parse(TestConstants.REAL_LIVE_KDU_IP));
-            await kdu.ConnectAsync(new CancellationToken());
+            await kdu.ConnectAsync(CancellationToken.None);
             Assert.IsTrue(kdu.Connected());
             await kdu.WriteSingleCoilAsync(34, true);
             await Task.Delay(100);
@@ -98,58 +98,132 @@ namespace KducerTests
         [Timeout(5000)]
         public async Task TestRunScrewdriverUntilResult()
         {
-            Kducer kdu = Kducer.CreateKducerAndStartAsyncComms(IPAddress.Parse(TestConstants.REAL_LIVE_KDU_IP), new CancellationToken());
-            await kdu.RunScrewdriverUntilResultAsync(new CancellationToken());
+            using Kducer kdu = Kducer.CreateKducerAndStartAsyncComms(IPAddress.Parse(TestConstants.REAL_LIVE_KDU_IP), CancellationToken.None, NullLoggerFactory.Instance);
+            await kdu.RunScrewdriverUntilResultAsync(CancellationToken.None);
             Assert.IsTrue(kdu.HasNewResult());
-            Console.WriteLine(String.Join(",", await kdu.GetResultAsync()));
-            kdu.Dispose();
+            Console.WriteLine(string.Join(",", await kdu.GetResultAsync(CancellationToken.None)));
         }
 
         [TestMethod]
         [Timeout(5000)]
         public async Task TestGetResultAfterManuallyRunScrewdriver()
         {
-            using Kducer kdu = Kducer.CreateKducerAndStartAsyncComms(IPAddress.Parse(TestConstants.REAL_LIVE_KDU_IP), new CancellationToken());
-            kdu.lockScrewdriverUntilResultsProcessed = true;
+            using Kducer kdu = Kducer.CreateKducerAndStartAsyncComms(IPAddress.Parse(TestConstants.REAL_LIVE_KDU_IP), CancellationToken.None, NullLoggerFactory.Instance);
+            kdu.lockScrewdriverUntilGetResult = true;
             Console.WriteLine("Manually run screwdriver until result...");
-            Console.WriteLine(await kdu.GetResultAsync());
+            Console.WriteLine(await kdu.GetResultAsync(CancellationToken.None));
         }
+
+        [TestMethod]
+        [Timeout(500)]
+        public async Task TestCancelGetResultAsync()
+        {
+            using Kducer kdu = Kducer.CreateKducerAndStartAsyncComms(IPAddress.Parse(TestConstants.REAL_LIVE_KDU_IP), CancellationToken.None, NullLoggerFactory.Instance);
+            CancellationTokenSource src = new CancellationTokenSource();
+            Task waitForResult = kdu.GetResultAsync(src.Token);
+            await Task.Delay(100);
+            src.Cancel();
+            await Assert.ThrowsExceptionAsync<System.Threading.Tasks.TaskCanceledException>(async () => await waitForResult);
+        }
+        
     }
 
     [TestClass]
     public class KducerTighteningResultsTests
     {
         [TestMethod]
-        public void TestGetTorque()
+        public void TestGetXYZFromPrebakedresult()
         {
-            byte[] res = new byte[] {
-                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x32,
-                0x00, 0x04, 0x00, 0x1E, 0xA2, 0xDD, 0x01, 0x73, 0x03, 0xE8,
-                0x00, 0x6E, 0x01, 0x2C, 0x00, 0x49, 0x00, 0x00, 0x00, 0x01,
-                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x52, 0x00, 0x54,
-                0x00, 0x00, 0x00, 0x00, 0x00, 0x52, 0x00, 0x14, 0x00, 0x00,
-                0x00, 0x32, 0x00, 0x0B, 0x00, 0x00, 0x02, 0x58, 0x00, 0x00,
-                0x00, 0x22, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-                0x00, 0x00, 0x00, 0x18, 0x00, 0x03, 0x00, 0x0E, 0x00, 0x10,
-                0x00, 0x0E, 0x00, 0x2F, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-                0x00, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-                0x00, 0x00, 0x30, 0x34
-            };
-            KducerTighteningResult kdures = new(res);
-            Console.WriteLine(kdures.GetTorque());
+            string strRes = "65 66 67 45 97 98 99 45 49 50 51 52 0 0 0 0 0 0 0 50 0 4 0 30 162 221 1 115 3 232 0 110 1 44 2 75 0 0 0 5 0 0 0 0 0 0 0 63 0 63 0 0 0 0 0 63 0 20 0 0 0 50 3 251 0 0 2 88 0 0 0 34 101 120 97 109 112 108 101 32 100 101 115 99 32 102 111 114 32 116 101 115 116 0 0 0 0 0 0 0 0 0 0 24 0 3 0 15 0 14 0 15 0 33 0 0 0 0 0 0 0 3 0 0 0 0 0 0 0 0 0 0 48 52 \r\n63";
+            byte[] res = strRes.Split(' ').Select(byte.Parse).ToArray();
+            KducerTighteningResult tighteningRes = new(res, false);
+            Assert.AreEqual(tighteningRes.GetTorqueResult(), 63);
+            Assert.AreEqual(tighteningRes.GetPeakTorque(), 63);
+            Assert.AreEqual(tighteningRes.GetRunningTorque(), 0);
+            Assert.AreEqual(tighteningRes.GetPrevailingTorque(), 0);
+            Assert.AreEqual(tighteningRes.GetAngleResult(), 20);
+            Assert.IsFalse(tighteningRes.IsScrewOK());
+            Assert.AreEqual(tighteningRes.GetBarcode(), "ABC-abc-1234");
+            Assert.AreEqual(tighteningRes.GetProgramDescription(), "example desc for test");
+            Assert.AreEqual(tighteningRes.GetScrewdriverModel(), "KDS-MT1.5");
+            Assert.AreEqual(tighteningRes.GetScrewdriverSerialNr(), (uint)2007773);
+            Assert.AreEqual(tighteningRes.GetProgramNr(), 50);
+            Assert.AreEqual(tighteningRes.GetTargetTorque(), 110);
+            Assert.AreEqual(tighteningRes.GetTargetSpeed(), 300);
+            Assert.AreEqual(tighteningRes.GetTargetScrewsOKcount(), 5);
+            Assert.AreEqual(tighteningRes.GetScrewTime(), 587);
+            Assert.AreEqual(tighteningRes.GetScrewsOKcount(), 0);
+            Assert.AreEqual(tighteningRes.GetSequence(), '-');
+            Assert.AreEqual(tighteningRes.GetSequenceNr(), 0);
+            Assert.AreEqual(tighteningRes.GetProgramIdxInSequence(), 0);
+            Assert.AreEqual(tighteningRes.GetNrProgramsInSequence(), 0);
+            Assert.AreEqual(tighteningRes.GetResultCode().ToLower(), "Over Max Angle".ToLower());
+            Assert.AreEqual(tighteningRes.GetResultTimestamp(), "2024-03-15 14:15:33");
+
+            strRes = "65 66 67 45 97 98 99 45 49 50 51 52 0 0 0 0 0 1 0 51 0 4 0 30 162 221 1 115 3 232 0 50 1 44 2 56 0 1 0 1 0 0 0 0 0 0 0 50 0 50 0 8 0 3 0 50 3 231 0 0 0 0 0 0 0 0 2 88 0 0 0 13 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 24 0 3 0 15 0 15 0 15 0 38 0 0 0 0 0 0 0 5 0 0 0 0 0 0 0 0 0 0 48 52";
+            res = strRes.Split(' ').Select(byte.Parse).ToArray();
+            tighteningRes = new(res, false);
+            Assert.AreEqual(tighteningRes.GetTorqueResult(), 50);
+            Assert.AreEqual(tighteningRes.GetPeakTorque(), 50);
+            Assert.AreEqual(tighteningRes.GetRunningTorque(), 3);
+            Assert.AreEqual(tighteningRes.GetPrevailingTorque(), 3);
+            Assert.AreEqual(tighteningRes.GetAngleResult(), 999);
+            Assert.IsTrue(tighteningRes.IsScrewOK());
+            Assert.AreEqual(tighteningRes.GetBarcode(), "ABC-abc-1234");
+            Assert.AreEqual(tighteningRes.GetProgramDescription(), "");
+            Assert.AreEqual(tighteningRes.GetScrewdriverModel(), "KDS-MT1.5");
+            Assert.AreEqual(tighteningRes.GetScrewdriverSerialNr(), (uint)2007773);
+            Assert.AreEqual(tighteningRes.GetProgramNr(), 51);
+            Assert.AreEqual(tighteningRes.GetTargetTorque(), 50);
+            Assert.AreEqual(tighteningRes.GetTargetSpeed(), 300);
+            Assert.AreEqual(tighteningRes.GetTargetScrewsOKcount(), 1);
+            Assert.AreEqual(tighteningRes.GetScrewTime(), 568);
+            Assert.AreEqual(tighteningRes.GetScrewsOKcount(), 1);
+            Assert.AreEqual(tighteningRes.GetSequence(), '-');
+            Assert.AreEqual(tighteningRes.GetSequenceNr(), 0);
+            Assert.AreEqual(tighteningRes.GetProgramIdxInSequence(), 0);
+            Assert.AreEqual(tighteningRes.GetNrProgramsInSequence(), 0);
+            Assert.AreEqual(tighteningRes.GetResultCode().ToLower(), "Screw OK".ToLower());
+            Assert.AreEqual(tighteningRes.GetResultTimestamp(), "2024-03-15 15:15:38");
+
+            strRes = "0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 0 55 0 4 0 30 162 221 1 115 3 232 0 50 1 44 3 254 0 1 0 1 0 3 0 2 0 2 0 49 0 49 0 0 0 0 0 49 7 150 0 0 0 0 0 0 0 0 2 88 0 0 0 13 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 24 0 3 0 15 0 15 0 16 0 12 0 0 0 0 0 0 0 9 0 0 0 0 0 0 0 0 0 0 48 52";
+            res = strRes.Split(' ').Select(byte.Parse).ToArray();
+            tighteningRes = new(res, false);
+            Assert.AreEqual(tighteningRes.GetTorqueResult(), 49);
+            Assert.AreEqual(tighteningRes.GetPeakTorque(), 49);
+            Assert.AreEqual(tighteningRes.GetRunningTorque(), 0);
+            Assert.AreEqual(tighteningRes.GetPrevailingTorque(), 0);
+            Assert.AreEqual(tighteningRes.GetAngleResult(), 1942);
+            Assert.IsTrue(tighteningRes.IsScrewOK());
+            Assert.AreEqual(tighteningRes.GetBarcode(), "");
+            Assert.AreEqual(tighteningRes.GetProgramDescription(), "");
+            Assert.AreEqual(tighteningRes.GetScrewdriverModel(), "KDS-MT1.5");
+            Assert.AreEqual(tighteningRes.GetScrewdriverSerialNr(), (uint)2007773);
+            Assert.AreEqual(tighteningRes.GetProgramNr(), 55);
+            Assert.AreEqual(tighteningRes.GetTargetTorque(), 50);
+            Assert.AreEqual(tighteningRes.GetTargetSpeed(), 300);
+            Assert.AreEqual(tighteningRes.GetTargetScrewsOKcount(), 1);
+            Assert.AreEqual(tighteningRes.GetScrewTime(), 1022);
+            Assert.AreEqual(tighteningRes.GetScrewsOKcount(), 1);
+            Assert.AreEqual(tighteningRes.GetSequence(), 'C');
+            Assert.AreEqual(tighteningRes.GetSequenceNr(), 3);
+            Assert.AreEqual(tighteningRes.GetProgramIdxInSequence(), 2);
+            Assert.AreEqual(tighteningRes.GetNrProgramsInSequence(), 2);
+            Assert.AreEqual(tighteningRes.GetResultCode().ToLower(), "Screw OK".ToLower());
+            Assert.AreEqual(tighteningRes.GetResultTimestamp(), "2024-03-15 15:16:12");
         }
 
         [TestMethod]
         public async Task TestGetTorque2()
         {
-            using Kducer kdu = Kducer.CreateKducerAndStartAsyncComms(IPAddress.Parse(TestConstants.REAL_LIVE_KDU_IP), new CancellationToken());
+            /*using Kducer kdu = Kducer.CreateKducerAndStartAsyncComms(IPAddress.Parse(TestConstants.REAL_LIVE_KDU_IP), CancellationToken.None, NullLoggerFactory.Instance);
             Console.WriteLine("Manually run screwdriver until result...");
-            byte[] res = await kdu.GetResultAsync();
-            KducerTighteningResult kdures = new(res);
-            Console.WriteLine(kdures.GetTorque());
+            byte[] res = await kdu.GetResultAsync(CancellationToken.None);
+            foreach (byte b in res)
+                Console.Write($"{b} ");
+            Console.Write($"\n");
+            KducerTighteningResult kdures = new(res, true);
+            Console.WriteLine(kdures.GetResultTimestamp());*/
         }
     }
 

@@ -1,13 +1,7 @@
 ﻿using System;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net;
-using System.Net.Sockets;
-using System.Reflection;
-using System.Runtime.InteropServices;
-using System.Threading;
-using System.Threading.Tasks;
 
 namespace Kolver
 {
@@ -19,24 +13,24 @@ namespace Kolver
         /// </summary>
         /// <param name="tighteningResultInputRegistersAsByteArray">the byte array from reading 67 input registers starting at address 295</param>
         /// <param name="replaceTimeStampWithCurrentTime">replaces the timestamp in the byte array with the local machine timestamp at the time of creating this object</param>
-        public KducerTighteningResult(byte[] tighteningResultInputRegistersAsByteArray, bool replaceTimeStampWithCurrentTime = true)
+        public KducerTighteningResult(byte[] tighteningResultInputRegistersAsByteArray, bool replaceTimeStampWithCurrentTime)
         {
             this.tighteningResultInputRegistersAsByteArray = new byte[tighteningResultInputRegistersAsByteArray.Length];
             tighteningResultInputRegistersAsByteArray.CopyTo(this.tighteningResultInputRegistersAsByteArray, 0);
 
             if(replaceTimeStampWithCurrentTime)
             {
-                DateTime localDateTime = DateTime.Now;
+                DateTime now = DateTime.Now;
                 byte[] timeStampAsModbusBytes = new byte[12];
 
-                BitConverter.GetBytes((ushort)IPAddress.HostToNetworkOrder((ushort)(localDateTime.Year % 2000))).CopyTo(timeStampAsModbusBytes, 0);
-                BitConverter.GetBytes((ushort)IPAddress.HostToNetworkOrder((ushort)localDateTime.Month)).CopyTo(timeStampAsModbusBytes, 2);
-                BitConverter.GetBytes((ushort)IPAddress.HostToNetworkOrder((ushort)localDateTime.Day)).CopyTo(timeStampAsModbusBytes, 4);
-                BitConverter.GetBytes((ushort)IPAddress.HostToNetworkOrder((ushort)localDateTime.Hour)).CopyTo(timeStampAsModbusBytes, 6);
-                BitConverter.GetBytes((ushort)IPAddress.HostToNetworkOrder((ushort)localDateTime.Minute)).CopyTo(timeStampAsModbusBytes, 8);
-                BitConverter.GetBytes((ushort)IPAddress.HostToNetworkOrder((ushort)localDateTime.Second)).CopyTo(timeStampAsModbusBytes, 10);
+                BitConverter.GetBytes((ushort)IPAddress.HostToNetworkOrder((short)(now.Year % 2000))).CopyTo(timeStampAsModbusBytes, 0);
+                BitConverter.GetBytes((ushort)IPAddress.HostToNetworkOrder((short)now.Month)).CopyTo(timeStampAsModbusBytes, 2);
+                BitConverter.GetBytes((ushort)IPAddress.HostToNetworkOrder((short)now.Day)).CopyTo(timeStampAsModbusBytes, 4);
+                BitConverter.GetBytes((ushort)IPAddress.HostToNetworkOrder((short)now.Hour)).CopyTo(timeStampAsModbusBytes, 6);
+                BitConverter.GetBytes((ushort)IPAddress.HostToNetworkOrder((short)now.Minute)).CopyTo(timeStampAsModbusBytes, 8);
+                BitConverter.GetBytes((ushort)IPAddress.HostToNetworkOrder((short)now.Second)).CopyTo(timeStampAsModbusBytes, 10);
 
-                timeStampAsModbusBytes.CopyTo(tighteningResultInputRegistersAsByteArray, 102);
+                timeStampAsModbusBytes.CopyTo(this.tighteningResultInputRegistersAsByteArray, 102);
             }
         }
         /// <summary>
@@ -45,7 +39,7 @@ namespace Kolver
         /// <returns>final torque result in cNm. if using running torque modes, this is the clamping torque value</returns>
         public ushort GetTorqueResult()
         {
-            return TwoModbusBytesToUshort(tighteningResultInputRegistersAsByteArray, 46);
+            return TwoModbusBigendianBytesToUshort(tighteningResultInputRegistersAsByteArray, 46);
         }
         /// <summary>
         /// 
@@ -53,7 +47,7 @@ namespace Kolver
         /// <returns>maximum torque measured at any time during the tightening in cNm</returns>
         public ushort GetPeakTorque()
         {
-            return TwoModbusBytesToUshort(tighteningResultInputRegistersAsByteArray, 48);
+            return TwoModbusBigendianBytesToUshort(tighteningResultInputRegistersAsByteArray, 48);
         }
         /// <summary>
         /// 
@@ -61,7 +55,7 @@ namespace Kolver
         /// <returns>running (prevailing) torque in cNm, if running torque mode is active, 0 otherwise</returns>
         public ushort GetRunningTorque()
         {
-            return TwoModbusBytesToUshort(tighteningResultInputRegistersAsByteArray, 52);
+            return TwoModbusBigendianBytesToUshort(tighteningResultInputRegistersAsByteArray, 52);
         }
         /// <summary>
         /// 
@@ -69,7 +63,7 @@ namespace Kolver
         /// <returns>prevailing (running) torque in cNm, if running torque mode is active, 0 otherwise</returns>
         public ushort GetPrevailingTorque()
         {
-            return TwoModbusBytesToUshort(tighteningResultInputRegistersAsByteArray, 52);
+            return TwoModbusBigendianBytesToUshort(tighteningResultInputRegistersAsByteArray, 52);
         }
         /// <summary>
         /// 
@@ -77,7 +71,7 @@ namespace Kolver
         /// <returns>the rotational angle result in degrees</returns>
         public ushort GetAngleResult()
         {
-            return TwoModbusBytesToUshort(tighteningResultInputRegistersAsByteArray, 56);
+            return TwoModbusBigendianBytesToUshort(tighteningResultInputRegistersAsByteArray, 56);
         }
         /// <summary>
         /// 
@@ -85,7 +79,7 @@ namespace Kolver
         /// <returns>true if screw result is OK</returns>
         public bool IsScrewOK()
         {
-            return ( tighteningResultInputRegistersAsByteArray[16] == 1 );
+            return ( tighteningResultInputRegistersAsByteArray[17] == 1 );
         }
         /// <summary>
         /// 
@@ -93,7 +87,7 @@ namespace Kolver
         /// <returns>string up to 16 ASCII characters with the barcode, if any was scanned or sent via modbus</returns>
         public string GetBarcode()
         {
-            return new string(System.Text.Encoding.ASCII.GetChars(tighteningResultInputRegistersAsByteArray, 0, 16));
+            return new string(System.Text.Encoding.ASCII.GetChars(tighteningResultInputRegistersAsByteArray, 0, 16)).TrimEnd('\0');
         }
         /// <summary>
         /// 
@@ -101,7 +95,7 @@ namespace Kolver
         /// <returns>string up to 30 ASCII characters with the program name</returns>
         public string GetProgramDescription()
         {
-            return new string(System.Text.Encoding.ASCII.GetChars(tighteningResultInputRegistersAsByteArray, 72, 30));
+            return new string(System.Text.Encoding.ASCII.GetChars(tighteningResultInputRegistersAsByteArray, 72, 30)).TrimEnd('\0');
         }
         /// <summary>
         /// 
@@ -109,7 +103,7 @@ namespace Kolver
         /// <returns>the program number of this result</returns>
         public ushort GetProgramNr()
         {
-            return TwoModbusBytesToUshort(tighteningResultInputRegistersAsByteArray, 18);
+            return TwoModbusBigendianBytesToUshort(tighteningResultInputRegistersAsByteArray, 18);
         }
         /// <summary>
         /// 
@@ -117,7 +111,7 @@ namespace Kolver
         /// <returns>the screwdriver motor model</returns>
         public string GetScrewdriverModel()
         {
-            return kdsModels[TwoModbusBytesToUshort(tighteningResultInputRegistersAsByteArray, 20)];
+            return kdsModels[TwoModbusBigendianBytesToUshort(tighteningResultInputRegistersAsByteArray, 20)];
         }
         /// <summary>
         /// 
@@ -125,7 +119,7 @@ namespace Kolver
         /// <returns>the screwdriver serial number</returns>
         public uint GetScrewdriverSerialNr()
         {
-            return FourModbusBytesToUint(tighteningResultInputRegistersAsByteArray, 22);
+            return FourModbusBigendianBytesToUint(tighteningResultInputRegistersAsByteArray, 22);
         }
         /// <summary>
         /// 
@@ -133,7 +127,7 @@ namespace Kolver
         /// <returns>the target torque of this result in cNm</returns>
         public ushort GetTargetTorque()
         {
-            return TwoModbusBytesToUshort(tighteningResultInputRegistersAsByteArray, 30);
+            return TwoModbusBigendianBytesToUshort(tighteningResultInputRegistersAsByteArray, 30);
         }
         /// <summary>
         /// 
@@ -141,7 +135,7 @@ namespace Kolver
         /// <returns>the target speed in RPM. final speed, not downshift speed</returns>
         public ushort GetTargetSpeed()
         {
-            return TwoModbusBytesToUshort(tighteningResultInputRegistersAsByteArray, 32);
+            return TwoModbusBigendianBytesToUshort(tighteningResultInputRegistersAsByteArray, 32);
         }
         /// <summary>
         /// 
@@ -149,7 +143,7 @@ namespace Kolver
         /// <returns>the tightening time of this result in milliseconds</returns>
         public ushort GetScrewTime()
         {
-            return TwoModbusBytesToUshort(tighteningResultInputRegistersAsByteArray, 34);
+            return TwoModbusBigendianBytesToUshort(tighteningResultInputRegistersAsByteArray, 34);
         }
         /// <summary>
         /// 
@@ -157,7 +151,7 @@ namespace Kolver
         /// <returns>the number of OK up to and including this result. NOK screws are not counted, for example: if this is the very screw being tightened and the result is NOK, the value will be zero.</returns>
         public ushort GetScrewsOKcount()
         {
-            return TwoModbusBytesToUshort(tighteningResultInputRegistersAsByteArray, 36);
+            return TwoModbusBigendianBytesToUshort(tighteningResultInputRegistersAsByteArray, 36);
         }
         /// <summary>
         /// 
@@ -165,7 +159,7 @@ namespace Kolver
         /// <returns>the target (total) number of screws of the program of this result</returns>
         public ushort GetTargetScrewsOKcount()
         {
-            return TwoModbusBytesToUshort(tighteningResultInputRegistersAsByteArray, 38);
+            return TwoModbusBigendianBytesToUshort(tighteningResultInputRegistersAsByteArray, 38);
         }
         /// <summary>
         /// 
@@ -173,7 +167,7 @@ namespace Kolver
         /// <returns>the sequence number of this result, if sequence is being used. 0=None, A=1, B=2 etc</returns>
         public ushort GetSequenceNr()
         {
-            return TwoModbusBytesToUshort(tighteningResultInputRegistersAsByteArray, 40);
+            return TwoModbusBigendianBytesToUshort(tighteningResultInputRegistersAsByteArray, 40);
         }
         /// <summary>
         /// 
@@ -193,7 +187,7 @@ namespace Kolver
         /// <returns>Index of current program in the sequence. From 1 up to 32</returns>
         public ushort GetProgramIdxInSequence()
         {
-            return TwoModbusBytesToUshort(tighteningResultInputRegistersAsByteArray, 42);
+            return TwoModbusBigendianBytesToUshort(tighteningResultInputRegistersAsByteArray, 42);
         }
         /// <summary>
         /// 
@@ -201,7 +195,7 @@ namespace Kolver
         /// <returns>number of programs in the sequence. From 1 up to 32</returns>
         public ushort GetNrProgramsInSequence()
         {
-            return TwoModbusBytesToUshort(tighteningResultInputRegistersAsByteArray, 44);
+            return TwoModbusBigendianBytesToUshort(tighteningResultInputRegistersAsByteArray, 44);
         }
         /// <summary>
         /// 
@@ -209,16 +203,38 @@ namespace Kolver
         /// <returns>short descriptive string of the result, for example "Screw OK" or "Over Max Torque"</returns>
         public string GetResultCode()
         {
-            return resultNotesByIndex[TwoModbusBytesToUshort(tighteningResultInputRegistersAsByteArray, 40)];
+            return resultNotesByIndex[TwoModbusBigendianBytesToUshort(tighteningResultInputRegistersAsByteArray, 70)];
         }
-        private ushort TwoModbusBytesToUshort(byte[] mbBytes, int index)
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <returns>timestamp of result as string in ISO 8601 format YYYY-MM-DD HH:MM:SS
+        /// Note: the data may have been overwritten with the local machine timestamp if replaceTimeStampWithCurrentTime was true (default) when this result was created
+        /// </returns>
+        public string GetResultTimestamp()
         {
-            return (ushort)IPAddress.NetworkToHostOrder((ushort)BitConverter.ToUInt16(mbBytes, index));
+            ushort YY = TwoModbusBigendianBytesToUshort(tighteningResultInputRegistersAsByteArray, 102);
+            ushort MM = TwoModbusBigendianBytesToUshort(tighteningResultInputRegistersAsByteArray, 104);
+            ushort DD = TwoModbusBigendianBytesToUshort(tighteningResultInputRegistersAsByteArray, 106);
+            ushort hh = TwoModbusBigendianBytesToUshort(tighteningResultInputRegistersAsByteArray, 108);
+            ushort mm = TwoModbusBigendianBytesToUshort(tighteningResultInputRegistersAsByteArray, 110);
+            ushort ss = TwoModbusBigendianBytesToUshort(tighteningResultInputRegistersAsByteArray, 112);
+            return $"20{YY:D2}-{MM:D2}-{DD:D2} {hh:D2}:{mm:D2}:{ss:D2}";
+        }
+        private static ushort TwoModbusBigendianBytesToUshort(byte[] mbBytes, int index)
+        {
+            if (BitConverter.IsLittleEndian)
+                return (ushort)(mbBytes[index] << 8 | mbBytes[index + 1]);
+            else
+                return BitConverter.ToUInt16(mbBytes, index);
         }
 
-        private uint FourModbusBytesToUint(byte[] mbBytes, int index)
+        private static uint FourModbusBigendianBytesToUint(byte[] mbBytes, int index)
         {
-            return (uint)IPAddress.NetworkToHostOrder((int)BitConverter.ToUInt32(mbBytes, index));
+            if (BitConverter.IsLittleEndian)
+                return (uint)((mbBytes[index] << 24) | (mbBytes[index + 1] << 16) | (mbBytes[index + 2] << 8) | mbBytes[index + 3]);
+            else
+                return BitConverter.ToUInt32(mbBytes, index);
         }
 
         private static readonly List<string> kdsModels = new List<string>
@@ -233,7 +249,7 @@ namespace Kolver
             "Screw OK", "Angle OK", "Reverse Torque OK", "Run Time OK",
             "Under Min Time", "Over Max Time", "", "", "Error PV Torque", "Reverse Torque Error",
             "Auto Reverse Incomplete", "Angle Not Reached", "Release Lever Error", "Err Overcurrent Protection",
-            "Err Overcurrent Protection", "Err Overcurrent Protection", "Err Temperature Protection",
+            "Err Overcurrent Protection", "Err Overcurrent Protection", "Err Temperature Protection","Err Motor Protection",
             "Under Min Torque", "Over Max Torque", "", "Over Max Angle", "Under Min Angle", "Pre-Reverse Incomplete",
             "", "Error KDS connection", "Running Torque Incomplete", "Running Torque Under Min", "Running Torque Over Max"
         };
