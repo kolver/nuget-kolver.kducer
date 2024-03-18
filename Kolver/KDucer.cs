@@ -1,5 +1,4 @@
 ﻿using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Logging.Abstractions;
 using System;
 using System.Collections.Concurrent;
 using System.Net;
@@ -40,43 +39,40 @@ namespace Kolver
         /// </summary>
         public bool logFailedConnectionsAsWarning = true;
 
-        private ReducedModbusTcpClientAsync mbClient;
+        private readonly ReducedModbusTcpClientAsync mbClient;
         private CancellationToken kduCommsCancellationToken;
         private readonly CancellationTokenSource linkedCancellationTokenSource;
         private Task asyncComms;
         private readonly ConcurrentQueue<KducerTighteningResult> resultsQueue = new ConcurrentQueue<KducerTighteningResult>();
         private readonly ConcurrentQueue<KduUnitOperationTaskAsync> userCmdQueue = new ConcurrentQueue<KduUnitOperationTaskAsync>();
-        private Kducer(IPAddress kduIpAddress, CancellationToken kduCommsCancellationToken, ILogger kduLogger) // private constructor: must use static constructors below
+
+        /// <summary>
+        /// istantiates a Kducer and starts async communications with the KDU controller
+        /// communications are stopped automatically when this object is disposed
+        /// </summary>
+        /// <param name="kduIpAddress">IP address of the KDU controller</param>
+        /// <param name="kduCommsCancellationToken">cancellation token for the underlying async Modbus TCP communications, pass CancellationToken.None if not needed</param>
+        /// <param name="loggerFactory">optional, pass to log info, warnings, and errors. pass NullLoggerFactory.Instance if not needed</param>
+        /// <param name="tcpConnectionTimeoutMs">timeout/interval for automatic reconnection attempts with the KDU controller</param>
+        /// <param name="tcpRxTxTimeoutMs">tcp tx/rx timeout/interval for individual Modbus TCP exchanges with the KDU controller</param>
+        public Kducer(IPAddress kduIpAddress, CancellationToken kduCommsCancellationToken, ILoggerFactory loggerFactory, int tcpConnectionTimeoutMs = 5000, int tcpRxTxTimeoutMs = 250)
         {
             linkedCancellationTokenSource = CancellationTokenSource.CreateLinkedTokenSource(kduCommsCancellationToken);
             this.kduCommsCancellationToken = linkedCancellationTokenSource.Token;
-            this.kduLogger = kduLogger;
-            mbClient = new ReducedModbusTcpClientAsync(kduIpAddress);
+            kduLogger = loggerFactory.CreateLogger(typeof(Kducer));
+            mbClient = new ReducedModbusTcpClientAsync(kduIpAddress, tcpConnectionTimeoutMs, tcpRxTxTimeoutMs);
+            StartAsyncComms();
         }
         /// <summary>
-        /// istantiates a Kducer and connects to the KDU controller
+        /// istantiates a Kducer and starts async communications with the KDU controller
         /// </summary>
-        /// <param name="kduIpAddress"></param>
-        /// <param name="kduCommsCancellationToken">If you don't need to use a cancellation token, use CancellationToken.None</param>
-        /// <param name="loggerFactory">If you don't need logging, use NullLoggerFactory.Instance</param>
-        /// <returns></returns>
-        public static Kducer CreateKducerAndStartAsyncComms(IPAddress kduIpAddress, CancellationToken kduCommsCancellationToken, ILoggerFactory loggerFactory)
-        {
-            Kducer kdu = new Kducer(kduIpAddress, kduCommsCancellationToken, loggerFactory.CreateLogger(typeof(Kducer)));
-            kdu.StartAsyncComms();
-            return kdu;
-        }
-        /// <summary>
-        /// istantiates a Kducer and connects to the KDU controller
-        /// </summary>
-        /// <param name="kduIpAddress"></param>
-        /// <param name="kduCommsCancellationToken">If you don't need to use a cancellation token, use CancellationToken.None</param>
-        /// <param name="loggerFactory">If you don't need logging, use NullLoggerFactory.Instance</param>
-        /// <returns></returns>
-        public static Kducer CreateKducerAndStartAsyncComms(String kduIpAddress, CancellationToken kduCommsCancellationToken, ILoggerFactory loggerFactory)
-        {
-            return CreateKducerAndStartAsyncComms(IPAddress.Parse(kduIpAddress), kduCommsCancellationToken, loggerFactory);
-        }
+        /// <param name="kduIpAddress">IP address of the KDU controller</param>
+        /// <param name="kduCommsCancellationToken">cancellation token for the underlying async Modbus TCP communications, pass CancellationToken.None if not needed</param>
+        /// <param name="loggerFactory">optional, pass to log info, warnings, and errors. pass NullLoggerFactory.Instance if not needed</param>
+        /// <param name="tcpConnectionTimeoutMs">timeout/interval for automatic reconnection attempts with the KDU controller</param>
+        /// <param name="tcpRxTxTimeoutMs">tcp tx/rx timeout/interval for individual Modbus TCP exchanges with the KDU controller</param>
+        public Kducer(String kduIpAddress, CancellationToken kduCommsCancellationToken, ILoggerFactory loggerFactory, int tcpConnectionTimeoutMs = 5000, int tcpRxTxTimeoutMs = 250) :
+            this(IPAddress.Parse(kduIpAddress), kduCommsCancellationToken, loggerFactory, tcpConnectionTimeoutMs, tcpRxTxTimeoutMs) { }
 
         private void StartAsyncComms()
         {
@@ -85,6 +81,8 @@ namespace Kolver
 
         private async Task AsyncCommsLoop()
         {
+            await Task.Delay(POLL_INTERVAL_MS, kduCommsCancellationToken);
+
             while (true)
             {
                 try
@@ -283,22 +281,6 @@ namespace Kolver
             return userCmd.result;
         }
 
-        internal class NoKduResultException : Exception
-        {
-            public NoKduResultException()
-            {
-            }
-
-            public NoKduResultException(string message)
-                : base(message)
-            {
-            }
-
-            public NoKduResultException(string message, Exception inner)
-                : base(message, inner)
-            {
-            }
-        }
         private enum UserCmd
         {
             None,

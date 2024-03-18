@@ -103,7 +103,7 @@ namespace Kolver
                 requestMbap[6] != responseMbap[6])
                 throw new ModbusException($"Invalid modbus response header. Request: {String.Join("", requestMbap)}, response header: {String.Join("",responseMbap)}");
 
-            int length = TwoModbusBigendianBytesToUshort(responseMbap, 4);
+            int length = ModbusByteConversions.TwoModbusBigendianBytesToUshort(responseMbap, 4);
             if ( length != (1+2)/*exception len is unit ID + 2*/ && length != expectedLength )
                 throw new ModbusException($"Invalid modbus response length. Request: {String.Join("", requestMbap)}, response header: {String.Join("",responseMbap)}");
         }
@@ -143,9 +143,9 @@ namespace Kolver
             mbRequest[5] = 6; // Length
             mbRequest[7] = fc; // 3 = Read Holding Registers, 4 = Read Input Registers
 
-            CopyUshortToBytesModbusBigendian(startAddress, mbRequest, 8);
+            ModbusByteConversions.CopyUshortToBytesAsModbusBigendian(startAddress, mbRequest, 8);
 
-            CopyUshortToBytesModbusBigendian(numberOfRegisters, mbRequest, 10);
+            ModbusByteConversions.CopyUshortToBytesAsModbusBigendian(numberOfRegisters, mbRequest, 10);
 
             int expectedResponseLength = 1/*uID*/ + 1/*FC*/ + 1/*byteCnt*/ + numberOfRegisters * 2;
 
@@ -157,7 +157,7 @@ namespace Kolver
             // Verify
             ThrowIfBadMbap(responseMbap, responseMbap, expectedResponseLength);
 
-            int nBytesToRecieve = TwoModbusBigendianBytesToUshort(responseMbap, 4) - 1;
+            int nBytesToRecieve = ModbusByteConversions.TwoModbusBigendianBytesToUshort(responseMbap, 4) - 1;
 
             // Receive modbus response data
             byte[] responseData = await ReceiveAllAsync(kduSock, nBytesToRecieve).ConfigureAwait(false); ;
@@ -188,7 +188,7 @@ namespace Kolver
             mbRequest[5] = 6; // Length
             mbRequest[7] = 5; // write coils
 
-            CopyUshortToBytesModbusBigendian(address, mbRequest, 8);
+            ModbusByteConversions.CopyUshortToBytesAsModbusBigendian(address, mbRequest, 8);
 
             if (value)
                 mbRequest[10] = 0xff;
@@ -203,7 +203,7 @@ namespace Kolver
             // Verify
             ThrowIfBadMbap(responseMbap, responseMbap, expectedResponseLength);
 
-            int nBytesToRecieve = TwoModbusBigendianBytesToUshort(responseMbap, 4) - 1;
+            int nBytesToRecieve = ModbusByteConversions.TwoModbusBigendianBytesToUshort(responseMbap, 4) - 1;
 
             // Receive modbus response data
             byte[] responseData = await ReceiveAllAsync(kduSock, nBytesToRecieve).ConfigureAwait(false); ;
@@ -221,9 +221,9 @@ namespace Kolver
             mbRequest[5] = 6; // Length
             mbRequest[7] = 6; // write single register
 
-            CopyUshortToBytesModbusBigendian(address, mbRequest, 8);
+            ModbusByteConversions.CopyUshortToBytesAsModbusBigendian(address, mbRequest, 8);
 
-            CopyUshortToBytesModbusBigendian(value, mbRequest, 10);
+            ModbusByteConversions.CopyUshortToBytesAsModbusBigendian(value, mbRequest, 10);
 
             int expectedResponseLength = 1/*uID*/ + 1/*FC*/ + 2/*addr*/ + 2/*val*/;
 
@@ -235,7 +235,7 @@ namespace Kolver
             // Verify
             ThrowIfBadMbap(responseMbap, responseMbap, expectedResponseLength);
 
-            int nBytesToRecieve = TwoModbusBigendianBytesToUshort(responseMbap, 4) - 1;
+            int nBytesToRecieve = ModbusByteConversions.TwoModbusBigendianBytesToUshort(responseMbap, 4) - 1;
 
             // Receive modbus response data
             byte[] responseData = await ReceiveAllAsync(kduSock, nBytesToRecieve).ConfigureAwait(false); ;
@@ -243,27 +243,6 @@ namespace Kolver
             ThrowIfBadResponse(mbRequest, responseData, expectedResponseLength);
 
             return;
-        }
-
-        private static ushort TwoModbusBigendianBytesToUshort(byte[] mbBytes, int index)
-        {
-            if (BitConverter.IsLittleEndian)
-                return (ushort)(mbBytes[index] << 8 | mbBytes[index + 1]);
-            else
-                return BitConverter.ToUInt16(mbBytes, index);
-        }
-        private static void CopyUshortToBytesModbusBigendian(ushort value, byte[] mbBytes, int index)
-        {
-            if (BitConverter.IsLittleEndian)
-            {
-                mbBytes[index] = (byte)(value >> 8);
-                mbBytes[index + 1] = (byte)value;
-            }
-            else
-            {
-                mbBytes[index] = (byte)value;
-                mbBytes[index + 1] = (byte)(value >> 8);
-            }
         }
     }
 
