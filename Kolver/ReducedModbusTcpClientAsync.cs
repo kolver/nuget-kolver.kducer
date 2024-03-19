@@ -160,7 +160,7 @@ namespace Kolver
             int nBytesToRecieve = ModbusByteConversions.TwoModbusBigendianBytesToUshort(responseMbap, 4) - 1;
 
             // Receive modbus response data
-            byte[] responseData = await ReceiveAllAsync(kduSock, nBytesToRecieve).ConfigureAwait(false); ;
+            byte[] responseData = await ReceiveAllAsync(kduSock, nBytesToRecieve).ConfigureAwait(false);
             // Verify
             ThrowIfBadResponse(mbRequest, responseData, expectedResponseLength);
 
@@ -172,12 +172,12 @@ namespace Kolver
 
         public async Task<byte[]> ReadHoldingRegistersAsync(ushort startAddress, ushort numberOfRegisters)
         {
-            return await ReadRegistersAsync(3/*read HR*/, startAddress, numberOfRegisters);
+            return await ReadRegistersAsync(3/*read HR*/, startAddress, numberOfRegisters).ConfigureAwait(false);
         }
 
         public async Task<byte[]> ReadInputRegistersAsync(ushort startAddress, ushort numberOfRegisters)
         {
-            return await ReadRegistersAsync(4/*read IR*/, startAddress, numberOfRegisters);
+            return await ReadRegistersAsync(4/*read IR*/, startAddress, numberOfRegisters).ConfigureAwait(false);
         }
 
         public async Task WriteSingleCoilAsync(ushort address, bool value)
@@ -246,7 +246,7 @@ namespace Kolver
         }
     }
 
-    internal class ModbusException : Exception
+    public class ModbusException : Exception
     {
         public ModbusException()
         {
@@ -263,7 +263,7 @@ namespace Kolver
         }
     }
 
-    internal class ModbusServerBusyException : ModbusException
+    public class ModbusServerBusyException : ModbusException
     {
         public ModbusServerBusyException()
         {

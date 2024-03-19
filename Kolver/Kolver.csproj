@@ -2,8 +2,28 @@
 
   <PropertyGroup>
     <TargetFramework>netstandard2.0</TargetFramework>
-    <SignAssembly>True</SignAssembly>
+    <SignAssembly>False</SignAssembly>
     <Version>0.1.0-beta0</Version>
+    <ProduceReferenceAssembly>True</ProduceReferenceAssembly>
+    <GenerateDocumentationFile>True</GenerateDocumentationFile>
+    <GeneratePackageOnBuild>True</GeneratePackageOnBuild>
+    <Title>Easily monitor and control a Kolver K-Ducer over ethernet</Title>
+    <Description>This library allows you to interface with a Kolver K-Ducer torque driving system without having to worry about the underlying Modbus TCP protocol.
+You can obtain tightening results, enable/disable the screwdriver, and run the screwdriver remotely (read the manual and always follow all safety precautions before running the screwdriver).
+The library uses TAP (async/await) to implement the underlying cyclical Modbus TCP communications, and uses its own minimal Modbus TCP client.
+Brought to you by Kolver www.kolver.com</Description>
+    <Copyright>Copyright (c) 2024 Kolver Srl www.kolver.com</Copyright>
+    <PackageProjectUrl>https://github.com/kolver/kducer-nuget</PackageProjectUrl>
+    <PackageIcon>Kolver 128x128.png</PackageIcon>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <RepositoryUrl>https://github.com/kolver/kducer-nuget</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageTags>kolver kducer k-ducer modbus modbusTCP torque screwdriver openprotocol open-protocol atlascopco asg xpaq mountz cleco estic powerfocus toolsnet</PackageTags>
+    <PackageReleaseNotes>first beta public release</PackageReleaseNotes>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <EnforceCodeStyleInBuild>True</EnforceCodeStyleInBuild>
+    <EnableNETAnalyzers>True</EnableNETAnalyzers>
+    <AnalysisLevel>6.0-all</AnalysisLevel>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">
@@ -13,6 +33,17 @@
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|AnyCPU'">
     <WarningLevel>9999</WarningLevel>
   </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="..\Kolver 128x128.png">
+      <Pack>True</Pack>
+      <PackagePath>\</PackagePath>
+    </None>
+    <None Include="..\README.md">
+      <Pack>True</Pack>
+      <PackagePath>\</PackagePath>
+    </None>
+  </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="8.0.1" />

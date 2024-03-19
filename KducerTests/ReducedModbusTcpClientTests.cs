@@ -98,7 +98,7 @@ namespace KducerTests
         [Timeout(5000)]
         public async Task TestRunScrewdriverUntilResult()
         {
-            using Kducer kdu = new Kducer(IPAddress.Parse(TestConstants.REAL_LIVE_KDU_IP), CancellationToken.None, NullLoggerFactory.Instance);
+            using Kducer kdu = new Kducer(IPAddress.Parse(TestConstants.REAL_LIVE_KDU_IP), NullLoggerFactory.Instance, CancellationToken.None);
             await kdu.RunScrewdriverUntilResultAsync(CancellationToken.None);
         }
 
@@ -106,7 +106,7 @@ namespace KducerTests
         [Timeout(5000)]
         public async Task TestGetResultAfterManuallyRunScrewdriver()
         {
-            using Kducer kdu = new Kducer(IPAddress.Parse(TestConstants.REAL_LIVE_KDU_IP), CancellationToken.None, NullLoggerFactory.Instance);
+            using Kducer kdu = new Kducer(IPAddress.Parse(TestConstants.REAL_LIVE_KDU_IP), NullLoggerFactory.Instance, CancellationToken.None);
             Console.WriteLine("Manually run screwdriver until result...");
             Console.WriteLine(await kdu.GetResultAsync(CancellationToken.None));
         }
@@ -115,7 +115,7 @@ namespace KducerTests
         [Timeout(500)]
         public async Task TestCancelGetResultAsync()
         {
-            using Kducer kdu = new Kducer(IPAddress.Parse(TestConstants.REAL_LIVE_KDU_IP), CancellationToken.None, NullLoggerFactory.Instance);
+            using Kducer kdu = new Kducer(IPAddress.Parse(TestConstants.REAL_LIVE_KDU_IP), NullLoggerFactory.Instance, CancellationToken.None);
             CancellationTokenSource src = new CancellationTokenSource();
             Task waitForResult = kdu.GetResultAsync(src.Token);
             await Task.Delay(100);
@@ -213,14 +213,10 @@ namespace KducerTests
         [TestMethod]
         public async Task TestGetTorque2()
         {
-            /*using Kducer kdu = Kducer.CreateKducerAndStartAsyncComms(IPAddress.Parse(TestConstants.REAL_LIVE_KDU_IP), CancellationToken.None, NullLoggerFactory.Instance);
+            using Kducer kdu = new Kducer(IPAddress.Parse(TestConstants.REAL_LIVE_KDU_IP), NullLoggerFactory.Instance, CancellationToken.None);
             Console.WriteLine("Manually run screwdriver until result...");
-            byte[] res = await kdu.GetResultAsync(CancellationToken.None);
-            foreach (byte b in res)
-                Console.Write($"{b} ");
-            Console.Write($"\n");
-            KducerTighteningResult kdures = new(res, true);
-            Console.WriteLine(kdures.GetResultTimestamp());*/
+            KducerTighteningResult res = await kdu.GetResultAsync(CancellationToken.None);
+            Console.WriteLine(res.GetResultTimestamp());
         }
     }
 

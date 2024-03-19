@@ -5,6 +5,10 @@ using System.Net;
 
 namespace Kolver
 {
+    /// <summary>
+    /// Representation of the tightening result data provided by the KDU controller
+    /// Provides convenience methods to get the data
+    /// </summary>
     public class KducerTighteningResult
     {
         private readonly byte[] tighteningResultInputRegistersAsByteArray;
@@ -15,6 +19,9 @@ namespace Kolver
         /// <param name="replaceTimeStampWithCurrentTime">replaces the timestamp in the byte array with the local machine timestamp at the time of creating this object</param>
         public KducerTighteningResult(byte[] tighteningResultInputRegistersAsByteArray, bool replaceTimeStampWithCurrentTime)
         {
+            if (tighteningResultInputRegistersAsByteArray == null)
+                throw new ArgumentNullException(nameof(tighteningResultInputRegistersAsByteArray));
+
             this.tighteningResultInputRegistersAsByteArray = new byte[tighteningResultInputRegistersAsByteArray.Length];
             tighteningResultInputRegistersAsByteArray.CopyTo(this.tighteningResultInputRegistersAsByteArray, 0);
 
@@ -240,8 +247,12 @@ namespace Kolver
         };
 
 
-        public const string csvColumnHeader = "Barcode,Result,Program nr,Program descr,Model,S/N,Target,Target units,Duration,Final Speed,OK screw count,Screw qty in program,Sequence,Seq. program index,Seq. program qty,Torque result,Peak torque,Running Torque Mode,Running Torque,Total torque,Angle result,Angle start at mode,Angle start at torque target,Angle start at angle value,Downshift mode,Downshift speed,Downshift threshold,Torque units,Angle units,Speed units,Time units,Date-Time,Notes,Torque chart units,Torque chart x-interval ms,First torque chart point,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Last torque chart point,Angle chart x-interval ms,First angle chart point,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Last angle chart point\n";
-        public string GetCSVheader() { return csvColumnHeader; }
+        private const string csvColumnHeader = "Barcode,Result,Program nr,Program descr,Model,S/N,Target,Target units,Duration,Final Speed,OK screw count,Screw qty in program,Sequence,Seq. program index,Seq. program qty,Torque result,Peak torque,Running Torque Mode,Running Torque,Total torque,Angle result,Angle start at mode,Angle start at torque target,Angle start at angle value,Downshift mode,Downshift speed,Downshift threshold,Torque units,Angle units,Speed units,Time units,Date-Time,Notes,Torque chart units,Torque chart x-interval ms,First torque chart point,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Last torque chart point,Angle chart x-interval ms,First angle chart point,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Last angle chart point\n";
+        /// <summary>
+        /// CSV column header for the CSV representation of the results
+        /// </summary>
+        /// <returns>string with CSV column header</returns>
+        public static string GetCsvColumnheader() { return csvColumnHeader; }
         /// <summary>
         /// generates a CSV representation of the results. get the column headers via GetCSVheader
         /// </summary>
@@ -273,7 +284,7 @@ namespace Kolver
             int serialNr = BitConverter.ToInt32(srBytes, 0);
             string targetTorque = ConvertModbusCNmTorqueStr(mbResRegs[15], torqueUnitsForResStr);
             int finalSpeed = mbResRegs[16];
-            double sTime = mbResRegs[17] / 1000.0;
+            string sTime = $"{mbResRegs[17] / 1000.0}:F2";
             int screwsMade = mbResRegs[18];
             int nScrews = mbResRegs[19];
             string sequence;
@@ -289,8 +300,8 @@ namespace Kolver
             else
             {
                 sequence = ((char)('A' - 1 + mbResRegs[20])).ToString();
-                seqPrgIdx = mbResRegs[21].ToString();
-                totPrgIdx = mbResRegs[22].ToString();
+                seqPrgIdx = $"{mbResRegs[21]}";
+                totPrgIdx = $"{mbResRegs[22]}";
             }
 
             string torque = ConvertModbusCNmTorqueStr(mbResRegs[23], torqueUnitsForResStr);
@@ -300,14 +311,14 @@ namespace Kolver
             string totalTorque = ConvertModbusCNmTorqueStr(mbResRegs[27], torqueUnitsForResStr);
             int taMode = mbResRegs[57];
             int targetAngle = mbResRegs[58];
-            string target = (taMode == 0) ? targetTorque : targetAngle.ToString();
+            string target = (taMode == 0) ? targetTorque : $"{targetAngle}";
 
             string targetUnits = torqueUnitsForResStr;
 
             string angToDSSpeed = "";
             for (int i = 28; i < 28 + 6; i++)
             {
-                angToDSSpeed += mbResRegs[i].ToString() + ",";
+                angToDSSpeed += $"{mbResRegs[i]},";
             }
 
             string dsTorque = ConvertModbusCNmTorqueStr(mbResRegs[34], torqueUnitsForResStr);
@@ -322,10 +333,10 @@ namespace Kolver
 
             List<string> dataInOrder = new List<string>()
             {
-                barcode, okNok, mbResRegs[9].ToString(), progrDesc, model, serialNr.ToString(),
-                target.ToString(), torqueUnitsForResStr, sTime.ToString(), finalSpeed.ToString(),
-                screwsMade.ToString(), nScrews.ToString(), sequence, seqPrgIdx, totPrgIdx, torque.ToString(),
-                maxTorque.ToString(), rtMode.ToString(), rTorque.ToString(), totalTorque.ToString()
+                barcode, okNok, $"{mbResRegs[9]}", progrDesc, model, $"{serialNr}",
+                target, torqueUnitsForResStr, sTime, $"{finalSpeed}",
+                $"{screwsMade}", $"{nScrews}", sequence, seqPrgIdx, totPrgIdx, torque,
+                maxTorque, $"{rtMode}", rTorque, totalTorque
             };
 
             string csvSoFar = string.Join(",", dataInOrder) + "," + angToDSSpeed;
@@ -342,7 +353,7 @@ namespace Kolver
             return resultStringCSV;
         }
 
-        private double GetConversionFactorCNmToUnits(string desiredTorqueUnits)
+        private static double GetConversionFactorCNmToUnits(string desiredTorqueUnits)
         {
             switch (desiredTorqueUnits)
             {
@@ -369,11 +380,11 @@ namespace Kolver
                     return 1;
             }
         }
-        private double ConvertModbusCNmTorqueFloat(double value, string desired_torque_units)
+        private static double ConvertModbusCNmTorqueFloat(double value, string desired_torque_units)
         {
             return value * GetConversionFactorCNmToUnits(desired_torque_units);
         }
-        private string ConvertModbusCNmTorqueStr(double value, string desired_torque_units)
+        private static string ConvertModbusCNmTorqueStr(double value, string desired_torque_units)
         {
             value = ConvertModbusCNmTorqueFloat(value, desired_torque_units);
             if (value > 100)
