@@ -13,10 +13,10 @@ You can obtain tightening results, enable/disable the screwdriver, and run the s
 The library uses TAP (async/await) to implement the underlying cyclical Modbus TCP communications, and uses its own minimal Modbus TCP client.
 Brought to you by Kolver www.kolver.com</Description>
     <Copyright>Copyright (c) 2024 Kolver Srl www.kolver.com</Copyright>
-    <PackageProjectUrl>https://github.com/kolver/kducer-nuget</PackageProjectUrl>
+    <PackageProjectUrl>https://github.com/kolver/nuget-kolver.kducer</PackageProjectUrl>
     <PackageIcon>Kolver 128x128.png</PackageIcon>
     <PackageReadmeFile>README.md</PackageReadmeFile>
-    <RepositoryUrl>https://github.com/kolver/kducer-nuget</RepositoryUrl>
+    <RepositoryUrl>https://github.com/kolver/nuget-kolver.kducer</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <PackageTags>kolver kducer k-ducer modbus modbusTCP torque screwdriver openprotocol open-protocol atlascopco asg xpaq mountz cleco estic powerfocus toolsnet</PackageTags>
     <PackageReleaseNotes>first beta public release</PackageReleaseNotes>

@@ -17,7 +17,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\Kolver\Kolver.csproj" />
+    <ProjectReference Include="..\Kolver\Kolver.Kducer.csproj" />
   </ItemGroup>
 
 </Project>

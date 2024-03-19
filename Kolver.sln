@@ -5,7 +5,7 @@ VisualStudioVersion = 17.8.34511.84
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "KducerTests", "KducerTests\KducerTests.csproj", "{07195AAF-FBA1-4780-AC76-F2159CD79362}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Kolver", "Kolver\Kolver.csproj", "{521E0D05-EEBA-4E94-BB72-A067790A17AD}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Kolver.Kducer", "Kolver\Kolver.Kducer.csproj", "{521E0D05-EEBA-4E94-BB72-A067790A17AD}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
