@@ -9,6 +9,7 @@ Excerpts from KducerExample.cs
 ```C#
 // create a Kducer client. The cyclic async communication loop is started automatically in the background.
 Kducer kdu = new Kducer("192.168.32.103", NullLoggerFactory.Instance);
+// kdu.Dispose(); // call Dispose when done using, to stop the Modbus TCP communication loop and close the connection
 ```
 ### Print a tightening result using async
 ```C#
