@@ -3,6 +3,10 @@ This library allows you to interface with a Kolver K-Ducer torque driving system
 You can obtain tightening results, enable/disable the screwdriver, and run the screwdriver remotely (read the manual and always follow all safety precautions before running the screwdriver from the library).
 It's compatible with .NET standard 2.0 (backwards compatible with .NET framework)
 Brought to you by Kolver www.kolver.com
+## Installation
+```
+dotnet add package Kolver.Kducer --version 0.1.0-beta1
+```
 ## Usage
 ### Instantiate a client
 ```C#
