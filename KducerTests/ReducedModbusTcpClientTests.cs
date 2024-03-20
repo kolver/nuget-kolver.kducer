@@ -1,3 +1,5 @@
+// Copyright (c) 2024 Kolver Srl www.kolver.com MIT license
+
 using Kolver;
 using Microsoft.Extensions.Logging.Abstractions;
 using System.Net;
@@ -17,33 +19,17 @@ namespace KducerTests
         [Timeout(3000)]
         public async Task TestConnectToLiveKdu()
         {
-            using ReducedModbusTcpClientAsync kdu = new ReducedModbusTcpClientAsync(IPAddress.Parse(TestConstants.REAL_LIVE_KDU_IP), 100);
+            using ReducedModbusTcpClientAsync kdu = new ReducedModbusTcpClientAsync(IPAddress.Parse(TestConstants.REAL_LIVE_KDU_IP));
             Assert.IsFalse(kdu.Connected());
-            await kdu.ConnectAsync(CancellationToken.None);
+            await kdu.ConnectAsync();
             Assert.IsTrue(kdu.Connected());
         }
 
         [TestMethod]
-        [Timeout(3000)]
-        public async Task TestCancelConnectToDeadKdu()
-        {
-            using ReducedModbusTcpClientAsync kdu = new ReducedModbusTcpClientAsync(IPAddress.Parse(TestConstants.OFF_OR_DC_KDU_IP), 3000);
-            CancellationTokenSource src = new CancellationTokenSource();
-            Task connectionAttempt = kdu.ConnectAsync(src.Token);
-            Assert.IsFalse(kdu.Connected());
-            await Task.Delay(100);
-            Assert.IsFalse(kdu.Connected());
-            src.Cancel();
-            await Task.Delay(5);
-            Assert.IsTrue(connectionAttempt.IsCanceled);
-        }
-
-        [TestMethod]
-        [Timeout(3000)]
         public async Task TestConnectToDeadKdu()
         {
-            using ReducedModbusTcpClientAsync kdu = new ReducedModbusTcpClientAsync(IPAddress.Parse(TestConstants.OFF_OR_DC_KDU_IP), 1000);
-            await Assert.ThrowsExceptionAsync<System.TimeoutException>(async () => await kdu.ConnectAsync(CancellationToken.None));
+            using ReducedModbusTcpClientAsync kdu = new ReducedModbusTcpClientAsync(IPAddress.Parse(TestConstants.OFF_OR_DC_KDU_IP));
+            await Assert.ThrowsExceptionAsync<System.Net.Sockets.SocketException>(async () => await kdu.ConnectAsync());
         }
 
         [TestMethod]
@@ -52,9 +38,9 @@ namespace KducerTests
         {
             using ReducedModbusTcpClientAsync kdu = new ReducedModbusTcpClientAsync(IPAddress.Parse(TestConstants.REAL_LIVE_KDU_IP));
             Assert.IsFalse(kdu.Connected());
-            await kdu.ConnectAsync(CancellationToken.None);
+            await kdu.ConnectAsync();
             Assert.IsTrue(kdu.Connected());
-            await kdu.ConnectAsync(CancellationToken.None);
+            await kdu.ConnectAsync();
             Assert.IsTrue(kdu.Connected());
         }
 
@@ -63,7 +49,7 @@ namespace KducerTests
         public async Task TestReadHoldingRegisters()
         {
             using ReducedModbusTcpClientAsync kdu = new ReducedModbusTcpClientAsync(IPAddress.Parse(TestConstants.REAL_LIVE_KDU_IP));
-            await kdu.ConnectAsync(CancellationToken.None);
+            await kdu.ConnectAsync();
             Assert.IsTrue(kdu.Connected());
             Console.WriteLine(await kdu.ReadHoldingRegistersAsync(0, 12));
         }
@@ -73,7 +59,7 @@ namespace KducerTests
         public async Task TestReadInputRegisters()
         {
             using ReducedModbusTcpClientAsync kdu = new ReducedModbusTcpClientAsync(IPAddress.Parse(TestConstants.REAL_LIVE_KDU_IP));
-            await kdu.ConnectAsync(CancellationToken.None);
+            await kdu.ConnectAsync();
             Assert.IsTrue(kdu.Connected());
             Console.WriteLine(await kdu.ReadInputRegistersAsync(0, 12));
         }
@@ -83,7 +69,7 @@ namespace KducerTests
         public async Task TestWriteCoil()
         {
             using ReducedModbusTcpClientAsync kdu = new ReducedModbusTcpClientAsync(IPAddress.Parse(TestConstants.REAL_LIVE_KDU_IP));
-            await kdu.ConnectAsync(CancellationToken.None);
+            await kdu.ConnectAsync();
             Assert.IsTrue(kdu.Connected());
             await kdu.WriteSingleCoilAsync(34, true);
             await Task.Delay(100);
@@ -98,7 +84,7 @@ namespace KducerTests
         [Timeout(5000)]
         public async Task TestRunScrewdriverUntilResult()
         {
-            using Kducer kdu = new Kducer(IPAddress.Parse(TestConstants.REAL_LIVE_KDU_IP), NullLoggerFactory.Instance, CancellationToken.None);
+            using Kducer kdu = new Kducer(IPAddress.Parse(TestConstants.REAL_LIVE_KDU_IP), NullLoggerFactory.Instance);
             await kdu.RunScrewdriverUntilResultAsync(CancellationToken.None);
         }
 
@@ -106,7 +92,7 @@ namespace KducerTests
         [Timeout(5000)]
         public async Task TestGetResultAfterManuallyRunScrewdriver()
         {
-            using Kducer kdu = new Kducer(IPAddress.Parse(TestConstants.REAL_LIVE_KDU_IP), NullLoggerFactory.Instance, CancellationToken.None);
+            using Kducer kdu = new Kducer(IPAddress.Parse(TestConstants.REAL_LIVE_KDU_IP), NullLoggerFactory.Instance);
             Console.WriteLine("Manually run screwdriver until result...");
             Console.WriteLine(await kdu.GetResultAsync(CancellationToken.None));
         }
@@ -115,14 +101,25 @@ namespace KducerTests
         [Timeout(500)]
         public async Task TestCancelGetResultAsync()
         {
-            using Kducer kdu = new Kducer(IPAddress.Parse(TestConstants.REAL_LIVE_KDU_IP), NullLoggerFactory.Instance, CancellationToken.None);
+            using Kducer kdu = new Kducer(IPAddress.Parse(TestConstants.REAL_LIVE_KDU_IP), NullLoggerFactory.Instance);
             CancellationTokenSource src = new CancellationTokenSource();
             Task waitForResult = kdu.GetResultAsync(src.Token);
             await Task.Delay(100);
             src.Cancel();
             await Assert.ThrowsExceptionAsync<System.Threading.Tasks.TaskCanceledException>(async () => await waitForResult);
         }
-        
+
+        [TestMethod]
+        [Timeout(5000)]
+        public async Task TestSelectProgramAsync()
+        {
+            using Kducer kdu = new Kducer(IPAddress.Parse(TestConstants.REAL_LIVE_KDU_IP), NullLoggerFactory.Instance);
+            ushort pr_set = 60;
+            await kdu.SelectProgramNumberAsync(pr_set);
+            ushort pr_get = await kdu.GetProgramNumberAsync();
+            Assert.AreEqual(pr_set, pr_get);
+        }
+
     }
 
     [TestClass]
@@ -213,7 +210,7 @@ namespace KducerTests
         [TestMethod]
         public async Task TestGetTorque2()
         {
-            using Kducer kdu = new Kducer(IPAddress.Parse(TestConstants.REAL_LIVE_KDU_IP), NullLoggerFactory.Instance, CancellationToken.None);
+            using Kducer kdu = new Kducer(IPAddress.Parse(TestConstants.REAL_LIVE_KDU_IP), NullLoggerFactory.Instance);
             Console.WriteLine("Manually run screwdriver until result...");
             KducerTighteningResult res = await kdu.GetResultAsync(CancellationToken.None);
             Console.WriteLine(res.GetResultTimestamp());

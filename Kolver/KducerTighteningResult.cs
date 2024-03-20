@@ -1,7 +1,8 @@
-﻿using System;
+﻿// Copyright (c) 2024 Kolver Srl www.kolver.com MIT license
+
+using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Net;
 
 namespace Kolver
 {

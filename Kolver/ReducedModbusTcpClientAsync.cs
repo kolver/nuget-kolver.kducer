@@ -1,9 +1,12 @@
-﻿using System;
+﻿// Copyright (c) 2024 Kolver Srl www.kolver.com MIT license
+
+using System;
 using System.Net;
 using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Runtime.CompilerServices;
+using System.Collections.Generic;
 [assembly: InternalsVisibleTo("KducerTests")]
 
 namespace Kolver
@@ -12,14 +15,15 @@ namespace Kolver
         : IDisposable 
     {
         private readonly IPEndPoint kduEndPoint;
-        private readonly Socket kduSock;
-        private readonly int connectionAttemptTimeoutMs;
+        private readonly int rxTxTimeoutMs;
         public readonly string kduIpAddress;
+        private readonly Socket kduSock;
 
-        public ReducedModbusTcpClientAsync(IPAddress kduIpAddress, int connectionAttemptTimeoutMs = 5000, int rxTxTimeoutMs = 250)
+        public ReducedModbusTcpClientAsync(IPAddress kduIpAddress, int rxTxTimeoutMs = 250)
         {
-            this.connectionAttemptTimeoutMs = connectionAttemptTimeoutMs;
+            this.rxTxTimeoutMs = rxTxTimeoutMs;
             kduEndPoint = new IPEndPoint(kduIpAddress, 502);
+            this.kduIpAddress = kduIpAddress.ToString();
             kduSock = new Socket(SocketType.Stream, ProtocolType.Tcp)
             {
                 SendTimeout = rxTxTimeoutMs,
@@ -27,9 +31,9 @@ namespace Kolver
                 LingerState = new LingerOption(true, 0),
                 ReceiveBufferSize = 1024,
                 SendBufferSize = 1024,
-                ExclusiveAddressUse = true
+                ExclusiveAddressUse = true,
+                NoDelay = true
             };
-            this.kduIpAddress = kduIpAddress.ToString();
         }
         // IDisposable implementation for a sealed class
         public void Dispose()
@@ -39,49 +43,58 @@ namespace Kolver
 
         public bool Connected() { return kduSock.Connected; }
 
-        public async Task ConnectAsync(CancellationToken cancellationToken)
+        /// <summary>
+        /// TAP (re)connection method that wraps around APM .net standard 2.0 connection methods
+        /// </summary>
+        /// <returns></returns>
+        /// <exception cref="SocketException">If connection attempt times out</exception>
+        public async Task ConnectAsync()
         {
-            if (kduSock.Connected)
+            if (Connected())
                 return;
-
-            const int cancellationCheckIntervalMs = 5;
-            int counter = 0;
-            Task conn = kduSock.ConnectAsync(kduEndPoint);
-            while (true)
-            {
-                await Task.Delay(cancellationCheckIntervalMs, cancellationToken).ConfigureAwait(false);
-
-                if (kduSock.Connected || conn.IsCompleted || cancellationToken.IsCancellationRequested)
-                    return;
-
-                if ( ++counter > (connectionAttemptTimeoutMs / cancellationCheckIntervalMs) )
-                {
-                    throw new TimeoutException($"Connection to {kduEndPoint.Address} timed out");
-                }
-            }
+            await Task.Factory.FromAsync(kduSock.BeginConnect, kduSock.EndConnect, kduEndPoint, null).ConfigureAwait(false);
         }
-
+        /// <summary>
+        /// sends all bytes, issuing multiple calls to socket send if necessary
+        /// uses Factory.FromAsync to wrap APM into TAP maintaining .net standard 2.0 compatibility
+        /// </summary>
+        /// <param name="socket"></param>
+        /// <param name="data"></param>
+        /// <returns></returns>
+        /// <exception cref="SocketException"></exception>
         private static async Task SendAllAsync(Socket socket, byte[] data)
         {
             int bytesSent = 0;
+            List<ArraySegment<byte>> wrapper = new List<ArraySegment<byte>>(1) { new ArraySegment<byte>() };
             while (bytesSent < data.Length)
             {
                 ArraySegment<byte> bytesChunk = new ArraySegment<byte>(data, bytesSent, data.Length - bytesSent);
-                int nBytesActuallySent = await socket.SendAsync(bytesChunk, SocketFlags.None).ConfigureAwait(false);
+                wrapper[0] = bytesChunk;
+                int nBytesActuallySent = await Task<int>.Factory.FromAsync(socket.BeginSend, socket.EndSend, wrapper, SocketFlags.None, null).ConfigureAwait(false);
                 if (nBytesActuallySent == 0)
                     throw new SocketException();
 
                 bytesSent += nBytesActuallySent;
             }
         }
+        /// <summary>
+        /// receive all bytes, issuing multiple calls to socket recieve if necessary
+        /// uses Factory.FromAsync to wrap APM into TAP maintaining .net standard 2.0 compatibility
+        /// </summary>
+        /// <param name="socket"></param>
+        /// <param name="length"></param>
+        /// <returns></returns>
+        /// <exception cref="SocketException"></exception>
         private static async Task<byte[]> ReceiveAllAsync(Socket socket, int length)
         {
             byte[] data = new byte[length];
             int bytesReceived = 0;
+            List<ArraySegment<byte>> wrapper = new List<ArraySegment<byte>>(1) { new ArraySegment<byte>() };
             while (bytesReceived < length)
             {
                 ArraySegment<byte> bytesChunk = new ArraySegment<byte>(data, bytesReceived, length - bytesReceived);
-                int nBytesActuallyReceived = await socket.ReceiveAsync(bytesChunk, SocketFlags.None).ConfigureAwait(false);
+                wrapper[0] = bytesChunk;
+                int nBytesActuallyReceived = await Task<int>.Factory.FromAsync(socket.BeginReceive, socket.EndReceive, wrapper, SocketFlags.None, null).ConfigureAwait(false);
                 if (nBytesActuallyReceived == 0)
                     throw new SocketException();
 
@@ -105,32 +118,32 @@ namespace Kolver
 
             int length = ModbusByteConversions.TwoModbusBigendianBytesToUshort(responseMbap, 4);
             if ( length != (1+2)/*exception len is unit ID + 2*/ && length != expectedLength )
-                throw new ModbusException($"Invalid modbus response length. Request: {String.Join("", requestMbap)}, response header: {String.Join("",responseMbap)}");
+                throw new ModbusException($"Invalid modbus response length in header. Request: {String.Join("", requestMbap)}, response header: {String.Join("",responseMbap)}");
         }
 
         private static bool ThrowIfBadResponse(byte[] request, byte[] responseData, int expectedLength)
         {
             if (request.Length < 9 || responseData.Length < 2)
-                throw new ModbusException($"Invalid modbus response. Request: {request}, response: {responseData}");
+                throw new ModbusException($"Invalid modbus response length, expected {expectedLength - 1} got {responseData.Length}");
 
             // Function Code
             if (request[7] != responseData[0])
             {
                 if (responseData[0] > 0x80 && (responseData[0] - 0x80) == request[7])
                 {
-                    short exceptionCode = request[8];
+                    int exceptionCode = responseData[0] - request[7];
                     // modbus exception
                     if (exceptionCode == 6)
-                        throw new ModbusServerBusyException($"Received modbus exception code {exceptionCode}: modbus server busy. Request: {request}, response: {responseData}");
+                        throw new ModbusException($"Received modbus exception code {exceptionCode}: modbus server busy.", exceptionCode);
                     else
-                        throw new ModbusException($"Received modbus exception code {exceptionCode}. Request: {request}, response: {responseData}");
+                        throw new ModbusException($"Received modbus exception code {exceptionCode}.", exceptionCode);
                 }
                 else
-                    throw new ModbusException($"Invalid modbus response. Request: {request}, response: {responseData}");
+                    throw new ModbusException($"Invalid modbus function code in response: expected {request[7]} got {responseData[0]}.");
             }
 
             if (responseData.Length != (expectedLength-1))
-                throw new ModbusException($"Invalid modbus response length. Request: {request}, response header: {responseData}");
+                throw new ModbusException($"Invalid modbus response length, expected {expectedLength - 1} got {responseData.Length}");
 
             return true;
         }
@@ -245,38 +258,28 @@ namespace Kolver
             return;
         }
     }
-
+    /// <summary>
+    /// represents a Modbus Exception
+    /// this can either be an error in the modbus response header
+    /// or a real modbus exception code
+    /// </summary>
     public class ModbusException : Exception
     {
-        public ModbusException()
-        {
-        }
+        private readonly int ModbusExceptionCode;
+        public ModbusException() { }
 
         public ModbusException(string message)
-            : base(message)
-        {
-        }
+            : base(message) { }
 
         public ModbusException(string message, Exception inner)
-            : base(message, inner)
-        {
-        }
-    }
+            : base(message, inner) { }
 
-    public class ModbusServerBusyException : ModbusException
-    {
-        public ModbusServerBusyException()
+        public ModbusException(string message, int modbusExceptionCode)
+        : this(message)
         {
+            ModbusExceptionCode = modbusExceptionCode;
         }
 
-        public ModbusServerBusyException(string message)
-            : base(message)
-        {
-        }
-
-        public ModbusServerBusyException(string message, Exception inner)
-            : base(message, inner)
-        {
-        }
+        public int GetModbusExceptionCode() { return ModbusExceptionCode; }
     }
 }

@@ -1,4 +1,6 @@
-﻿using System;
+﻿// Copyright (c) 2024 Kolver Srl www.kolver.com MIT license
+
+using System;
 
 namespace Kolver
 {
