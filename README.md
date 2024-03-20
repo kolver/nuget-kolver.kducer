@@ -1,19 +1,18 @@
-# nuget-kolver.kducer
+# nuget kolver.kducer package
 This library allows you to interface with a Kolver K-Ducer torque driving system without having to worry about the underlying Modbus TCP protocol.
 You can obtain tightening results, enable/disable the screwdriver, and run the screwdriver remotely (read the manual and always follow all safety precautions before running the screwdriver from the library).
-The library uses TAP (async/await) to implement the underlying cyclical Modbus TCP communications, and uses its own minimal Modbus TCP client.
+It's compatible with .NET standard 2.0 (backwards compatible with .NET framework)
 Brought to you by Kolver www.kolver.com
 ## Usage
-Excerpts from KducerExample.cs
-### Istantiate a client
+### Instantiate a client
 ```C#
-// create a Kducer client. The cyclic async communication loop is started automatically in the background.
+// create a Kducer client. The cyclic async communication loop is started automatically in the background. You can optionally pass a ILoggerFactory for logging.
 Kducer kdu = new Kducer("192.168.32.103", NullLoggerFactory.Instance);
 // kdu.Dispose(); // call Dispose when done using, to stop the Modbus TCP communication loop and close the connection
 ```
 ### Print a tightening result using async
 ```C#
-// print a tightening result using async/await
+// print a tightening result using async/await. You can optionally pass a CancellationToken to stop the task.
 KducerTighteningResult lastesTightening = await kdu.GetResultAsync(CancellationToken.None);
 Console.WriteLine($"{lastesTightening.GetResultTimestamp()} - The torque was {lastesTightening.GetTorqueResult()} cNm and the angle was {lastesTightening.GetAngleResult()} degrees");
 ```
