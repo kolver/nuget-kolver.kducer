@@ -16,16 +16,16 @@ Brought to you by Kolver www.kolver.com</Description>
     <PackageProjectUrl>https://github.com/kolver/nuget-kolver.kducer</PackageProjectUrl>
     <PackageIcon>Kolver 128x128.png</PackageIcon>
     <PackageReadmeFile>README.md</PackageReadmeFile>
-    <RepositoryUrl>https://github.com/kolver/nuget-kolver.kducer</RepositoryUrl>
-    <RepositoryType>git</RepositoryType>
-    <PackageTags>kolver kducer k-ducer modbus modbusTCP torque screwdriver openprotocol open-protocol atlascopco asg xpaq mountz cleco estic powerfocus toolsnet</PackageTags>
+    <RepositoryUrl></RepositoryUrl>
+    <RepositoryType></RepositoryType>
+    <PackageTags>kolver kducer k-ducer modbus modbusTCP torque screwdriver openprotocol open-protocol atlascopco atlas copco asg xpaq mountz cleco estic powerfocus toolsnet</PackageTags>
     <PackageReleaseNotes>first beta public release</PackageReleaseNotes>
-    <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <EnforceCodeStyleInBuild>True</EnforceCodeStyleInBuild>
     <EnableNETAnalyzers>True</EnableNETAnalyzers>
     <AnalysisLevel>6.0-all</AnalysisLevel>
-    <Authors>Kolver</Authors>
+    <Authors>kolver,edoardo-kolver</Authors>
     <Company>Kolver Srl</Company>
+    <PackageLicenseFile>LICENSE.txt</PackageLicenseFile>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">
@@ -38,6 +38,10 @@ Brought to you by Kolver www.kolver.com</Description>
 
   <ItemGroup>
     <None Include="..\Kolver 128x128.png">
+      <Pack>True</Pack>
+      <PackagePath>\</PackagePath>
+    </None>
+    <None Include="..\LICENSE.txt">
       <Pack>True</Pack>
       <PackagePath>\</PackagePath>
     </None>
