@@ -2,6 +2,8 @@
 
 using Kolver;
 using Microsoft.Extensions.Logging.Abstractions;
+using System.Collections;
+using System.Linq;
 using System.Net;
 
 namespace KducerTests
@@ -9,7 +11,7 @@ namespace KducerTests
     static class TestConstants
     {
         public static string REAL_LIVE_KDU_IP = "192.168.32.103";
-        public static string OFF_OR_DC_KDU_IP = "192.168.32.69";
+        public static string OFF_OR_DC_KDU_IP = "192.168.32.40";
     }
 
     [TestClass]
@@ -82,9 +84,76 @@ namespace KducerTests
     {
         [TestMethod]
         [Timeout(5000)]
+        public async Task TestSendProgramData()
+        {
+            using Kducer kdu = new Kducer(IPAddress.Parse(TestConstants.REAL_LIVE_KDU_IP), NullLoggerFactory.Instance);
+
+            KducerTighteningProgram pr = new KducerTighteningProgram();
+            pr.SetTorqueAngleMode(1);
+            pr.SetAngleTarget(1000);
+
+            await kdu.SendNewProgramDataAsync(1, pr);
+            KducerTighteningProgram prRead = await kdu.GetActiveTighteningProgramDataAsync();
+            Assert.IsTrue(prRead.getProgramModbusHoldingRegistersAsByteArray().SequenceEqual(pr.getProgramModbusHoldingRegistersAsByteArray()));
+        }
+
+        [TestMethod]
+        [Timeout(5000)]
+        public async Task TestGetProgramData()
+        {
+            using Kducer kdu = new Kducer(IPAddress.Parse(TestConstants.REAL_LIVE_KDU_IP), NullLoggerFactory.Instance);
+
+            KducerTighteningProgram prRead = await kdu.GetTighteningProgramDataAsync(200);
+
+            prRead.SetLeverErrorOnOff(true);
+
+            await kdu.SendNewProgramDataAsync(200, prRead);
+
+            KducerTighteningProgram prReRead = await kdu.GetTighteningProgramDataAsync(200);
+
+            Assert.IsTrue(prRead.getProgramModbusHoldingRegistersAsByteArray().SequenceEqual(prReRead.getProgramModbusHoldingRegistersAsByteArray()));
+
+            KducerTighteningProgramTests.setAllParametersOfKduTighteningProgram(prRead);
+
+            await kdu.SendNewProgramDataAsync(200, prRead);
+
+            prReRead = await kdu.GetTighteningProgramDataAsync(200);
+
+            Assert.IsTrue(prRead.getProgramModbusHoldingRegistersAsByteArray().SequenceEqual(prReRead.getProgramModbusHoldingRegistersAsByteArray()));
+        }
+
+        [TestMethod]
+        [Timeout(30000)]
+        public async Task TestSendMultipleProgramData()
+        {
+            using Kducer kdu = new Kducer(IPAddress.Parse(TestConstants.REAL_LIVE_KDU_IP), NullLoggerFactory.Instance);
+
+            KducerTighteningProgram pr = new KducerTighteningProgram();
+            pr.SetTorqueAngleMode(1);
+            pr.SetAngleTarget(1000);
+
+            Dictionary<ushort, KducerTighteningProgram> prDic = new();
+            for (ushort i = 1; i <= 200; i++)
+                prDic.Add(i, pr);
+
+            await kdu.SendMultipleNewProgramsDataAsync(prDic);
+
+            Dictionary<ushort, KducerTighteningProgram> prRead = await kdu.GetAllTighteningProgramDataAsync();
+            for (ushort i = 1; i <= 200; i++)
+                Assert.IsTrue(prRead[i].getProgramModbusHoldingRegistersAsByteArray().SequenceEqual(prDic[i].getProgramModbusHoldingRegistersAsByteArray()));
+        }
+
+        [TestMethod]
+        [Timeout(5000)]
         public async Task TestRunScrewdriverUntilResult()
         {
             using Kducer kdu = new Kducer(IPAddress.Parse(TestConstants.REAL_LIVE_KDU_IP), NullLoggerFactory.Instance);
+
+            KducerTighteningProgram pr = new KducerTighteningProgram();
+            pr.SetTorqueAngleMode(1);
+            pr.SetAngleTarget(1000);
+
+            await kdu.SendNewProgramDataAsync(1, pr);
             await kdu.RunScrewdriverUntilResultAsync(CancellationToken.None);
         }
 
@@ -93,6 +162,12 @@ namespace KducerTests
         public async Task TestGetResultAfterManuallyRunScrewdriver()
         {
             using Kducer kdu = new Kducer(IPAddress.Parse(TestConstants.REAL_LIVE_KDU_IP), NullLoggerFactory.Instance);
+
+            KducerTighteningProgram pr = new KducerTighteningProgram();
+            pr.SetTorqueAngleMode(1);
+            pr.SetAngleTarget(1000);
+            await kdu.SendNewProgramDataAsync(await kdu.GetProgramNumberAsync(), pr);
+
             Console.WriteLine("Manually run screwdriver until result...");
             Console.WriteLine(await kdu.GetResultAsync(CancellationToken.None));
         }
@@ -206,15 +281,77 @@ namespace KducerTests
             Assert.AreEqual(tighteningRes.GetResultCode().ToLower(), "Screw OK".ToLower());
             Assert.AreEqual(tighteningRes.GetResultTimestamp(), "2024-03-15 15:16:12");
         }
-
-        [TestMethod]
-        public async Task TestGetTorque2()
-        {
-            using Kducer kdu = new Kducer(IPAddress.Parse(TestConstants.REAL_LIVE_KDU_IP), NullLoggerFactory.Instance);
-            Console.WriteLine("Manually run screwdriver until result...");
-            KducerTighteningResult res = await kdu.GetResultAsync(CancellationToken.None);
-            Console.WriteLine(res.GetResultTimestamp());
-        }
     }
 
+    [TestClass]
+    public class KducerTighteningProgramTests
+    {
+        [TestMethod]
+        [Timeout(1000)]
+        public void TestSetValues()
+        {
+            KducerTighteningProgram builtPr = new KducerTighteningProgram("KDS-MT1.5");
+            Assert.AreEqual(300, builtPr.GetFinalSpeed());
+
+            byte[] prFromKdu = [0, 0, 0, 50, 0, 0, 0, 150, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 117, 48, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 44, 0, 0, 2, 88, 0, 0, 0, 0, 0, 0, 0, 0, 8, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 200, 0, 2, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1, 44, 0, 0, 0, 150, 0, 2, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 3, 0, 2, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3, 232, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+            builtPr.SetSocket(1);
+            Assert.IsTrue(prFromKdu.SequenceEqual(builtPr.getProgramModbusHoldingRegistersAsByteArray()));
+
+            builtPr = new KducerTighteningProgram(new byte[230]);
+            setAllParametersOfKduTighteningProgram(builtPr);
+
+            prFromKdu = [0, 0, 0, 50, 0, 0, 7, 208, 0, 0, 3, 232, 0, 0, 60, 140, 0, 0, 62, 128, 0, 0, 58, 152, 0, 0, 0, 100, 0, 0, 1, 99, 0, 0, 3, 82, 0, 0, 19, 136, 0, 1, 0, 0, 111, 27, 0, 0, 0, 25, 0, 0, 0, 0, 0, 0, 0, 60, 0, 0, 0, 150, 0, 1, 0, 0, 0, 0, 0, 0, 14, 16, 0, 0, 2, 88, 0, 0, 3, 231, 0, 1, 0, 0, 0, 0, 0, 0, 5, 220, 0, 0, 0, 10, 0, 0, 0, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0, 8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 8, 0, 0, 0, 255, 116, 101, 115, 116, 32, 112, 114, 111, 103, 114, 97, 109, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3, 232, 0, 1, 1, 44, 1, 244, 0, 10, 0, 30, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+            for(int i = 0; i < prFromKdu.Length; i++)
+                if (prFromKdu[i] != builtPr.getProgramModbusHoldingRegistersAsByteArray()[i])
+                    Console.WriteLine($"builtPr[{i}]={builtPr.getProgramModbusHoldingRegistersAsByteArray()[i]}, prFromKdu[{i}]={prFromKdu[i]}" );
+            Assert.IsTrue(prFromKdu.SequenceEqual(builtPr.getProgramModbusHoldingRegistersAsByteArray()));
+        }
+
+        internal static void setAllParametersOfKduTighteningProgram(KducerTighteningProgram builtPr)
+        {
+            builtPr.SetAngleMin(15000);
+            builtPr.SetAngleMax(16000);
+            builtPr.SetTorqueAngleMode(1);
+            builtPr.SetAngleTarget(15500);
+            builtPr.SetTorqueMax(2000);
+            builtPr.SetTorqueMin(1000);
+            builtPr.SetTorqueTarget(50);
+            builtPr.SetDownshiftInitialSpeed(850);
+            builtPr.SetDownshiftThreshold(5000);
+            builtPr.SetDescription("test program");
+            builtPr.SetFinalSpeed(355);
+            builtPr.SetMaxPowerPhaseAngle(3600);
+            builtPr.SetMaxPowerPhaseMode(1);
+            builtPr.SetMaxReverseTorque(999);
+            builtPr.SetMaxtime(150);
+            builtPr.SetMintime(60);
+            builtPr.SetDownshiftAtAngleOnOff(true);
+            builtPr.SetRampOnOff(true);
+            builtPr.SetMaxTimeOnOff(true);
+            builtPr.SetMinTimeOnOff(true);
+            builtPr.SetPressOkOnOff(true);
+            builtPr.SetPressEscOnOff(true);
+            builtPr.SetLeverErrorOnOff(true);
+            builtPr.SetReverseAllowedOnOff(true);
+            builtPr.SetUseDock05Screwdriver2OnOff(true);
+            builtPr.SetNumberOfScrews(255);
+            builtPr.SetPreTighteningReverseAngle(1500);
+            builtPr.SetPreTighteningReverseDelay(10);
+            builtPr.SetPreTighteningReverseMode(1);
+            builtPr.SetRamp(25);
+            builtPr.SetReverseSpeed(600);
+            builtPr.SetRunningTorqueMax(30);
+            builtPr.SetRunningTorqueMin(10);
+            builtPr.SetRunningTorqueMode(1);
+            builtPr.SetRunningTorqueWindowEnd(500);
+            builtPr.SetRunningTorqueWindowStart(300);
+            builtPr.SetSocket(8);
+            builtPr.SetAngleStartAt(100);
+            builtPr.SetAngleStartAtMode(0);
+            builtPr.SetAfterTighteningReverseTime(5);
+            builtPr.SetAfterTighteningReverseDelay(8);
+            builtPr.SetAfterTighteningReverseMode(0);
+            builtPr.SetTorqueCompensationValue(1000);
+        }
+    }
 }

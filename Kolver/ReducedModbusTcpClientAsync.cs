@@ -3,7 +3,6 @@
 using System;
 using System.Net;
 using System.Net.Sockets;
-using System.Threading;
 using System.Threading.Tasks;
 using System.Runtime.CompilerServices;
 using System.Collections.Generic;
@@ -239,6 +238,42 @@ namespace Kolver
             ModbusByteConversions.CopyUshortToBytesAsModbusBigendian(value, mbRequest, 10);
 
             int expectedResponseLength = 1/*uID*/ + 1/*FC*/ + 2/*addr*/ + 2/*val*/;
+
+            // Send modbus request
+            await SendAllAsync(kduSock, mbRequest).ConfigureAwait(false); ;
+
+            // Receive modbus mbap (header)
+            byte[] responseMbap = await ReceiveAllAsync(kduSock, 7).ConfigureAwait(false); ;
+            // Verify
+            ThrowIfBadMbap(responseMbap, responseMbap, expectedResponseLength);
+
+            int nBytesToRecieve = ModbusByteConversions.TwoModbusBigendianBytesToUshort(responseMbap, 4) - 1;
+
+            // Receive modbus response data
+            byte[] responseData = await ReceiveAllAsync(kduSock, nBytesToRecieve).ConfigureAwait(false); ;
+            // Verify
+            ThrowIfBadResponse(mbRequest, responseData, expectedResponseLength);
+
+            return;
+        }
+
+        public async Task WriteMultipleRegistersAsync(ushort address, byte[] values)
+        {
+            byte[] mbRequest = new byte[12 + 1 + values.Length];
+            // Transaction ID (2 bytes), Protocol ID (2 bytes), Length (2 bytes), Unit ID (1 byte), Function Code (1 byte), Address (2 bytes), Quantity (2 bytes), Qty Bytes (1 byte), Data bytes (qty)
+
+            mbRequest[5] = (byte)(7 + values.Length); // Length
+            mbRequest[7] = 16; // write multiple registers
+
+            ModbusByteConversions.CopyUshortToBytesAsModbusBigendian(address, mbRequest, 8);
+
+            ModbusByteConversions.CopyUshortToBytesAsModbusBigendian((ushort)(values.Length/2), mbRequest, 10);
+
+            mbRequest[12] = (byte)values.Length;
+
+            values.CopyTo(mbRequest, 13);
+
+            int expectedResponseLength = 1/*uID*/ + 1/*FC*/ + 2/*addr*/ + 2/*qty*/;
 
             // Send modbus request
             await SendAllAsync(kduSock, mbRequest).ConfigureAwait(false); ;
