@@ -1,6 +1,7 @@
 ﻿// Copyright (c) 2024 Kolver Srl www.kolver.com MIT license
 
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 
@@ -13,12 +14,14 @@ namespace Kolver
     public class KducerTighteningResult
     {
         private readonly byte[] tighteningResultInputRegistersAsByteArray;
+        private readonly KducerTorqueAngleTimeGraph torqueAngleGraph;
         /// <summary>
         /// 
         /// </summary>
         /// <param name="tighteningResultInputRegistersAsByteArray">the byte array from reading 67 input registers starting at address 295</param>
         /// <param name="replaceTimeStampWithCurrentTime">replaces the timestamp in the byte array with the local machine timestamp at the time of creating this object</param>
-        public KducerTighteningResult(byte[] tighteningResultInputRegistersAsByteArray, bool replaceTimeStampWithCurrentTime)
+        /// <param name="torqueAngleGraph">the optional torque-angle graph data corresponding to this result</param>
+        public KducerTighteningResult(byte[] tighteningResultInputRegistersAsByteArray, bool replaceTimeStampWithCurrentTime, KducerTorqueAngleTimeGraph torqueAngleGraph = null)
         {
             if (tighteningResultInputRegistersAsByteArray == null)
                 throw new ArgumentNullException(nameof(tighteningResultInputRegistersAsByteArray));
@@ -26,7 +29,7 @@ namespace Kolver
             this.tighteningResultInputRegistersAsByteArray = new byte[tighteningResultInputRegistersAsByteArray.Length];
             tighteningResultInputRegistersAsByteArray.CopyTo(this.tighteningResultInputRegistersAsByteArray, 0);
 
-            if(replaceTimeStampWithCurrentTime)
+            if (replaceTimeStampWithCurrentTime)
             {
                 DateTime now = DateTime.Now;
                 byte[] timeStampAsModbusBytes = new byte[12];
@@ -40,6 +43,11 @@ namespace Kolver
 
                 timeStampAsModbusBytes.CopyTo(this.tighteningResultInputRegistersAsByteArray, 102);
             }
+
+            if (torqueAngleGraph != null)
+                this.torqueAngleGraph = torqueAngleGraph;
+            else
+                this.torqueAngleGraph = new KducerTorqueAngleTimeGraph(new byte[142], new byte[142]);
         }
         /// <summary>
         /// 
@@ -87,7 +95,7 @@ namespace Kolver
         /// <returns>true if screw result is OK</returns>
         public bool IsScrewOK()
         {
-            return ( tighteningResultInputRegistersAsByteArray[17] == 1 );
+            return (tighteningResultInputRegistersAsByteArray[17] == 1);
         }
         /// <summary>
         /// 
@@ -247,28 +255,26 @@ namespace Kolver
             "", "Error KDS connection", "Running Torque Incomplete", "Running Torque Under Min", "Running Torque Over Max"
         };
 
-
-        private const string csvColumnHeader = "Barcode,Result,Program nr,Program descr,Model,S/N,Target,Target units,Duration,Final Speed,OK screw count,Screw qty in program,Sequence,Seq. program index,Seq. program qty,Torque result,Peak torque,Running Torque Mode,Running Torque,Total torque,Angle result,Angle start at mode,Angle start at torque target,Angle start at angle value,Downshift mode,Downshift speed,Downshift threshold,Torque units,Angle units,Speed units,Time units,Date-Time,Notes,Torque chart units,Torque chart x-interval ms,First torque chart point,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Last torque chart point,Angle chart x-interval ms,First angle chart point,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Last angle chart point\n";
         /// <summary>
-        /// CSV column header for the CSV representation of the results
+        /// CSV column header for the CSV representation of the results (single line, KDU v37 style)
         /// </summary>
-        /// <returns>string with CSV column header</returns>
-        public static string GetCsvColumnheader() { return csvColumnHeader; }
+        public static string csvColumnHeaderSingleLine { get; } = "Barcode,Result,Program nr,Program descr,Model,S/N,Target,Target units,Duration,Final Speed,OK screw count,Screw qty in program,Sequence,Seq. program index,Seq. program qty,Torque result,Peak torque,Running Torque Mode,Running Torque,Total torque,Angle result,Angle start at mode,Angle start at torque target,Angle start at angle value,Downshift mode,Downshift speed,Downshift threshold,Torque units,Angle units,Speed units,Time units,Date-Time,Notes,Torque chart units,Torque chart x-interval ms,First torque chart point,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Last torque chart point,Angle chart x-interval ms,First angle chart point,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Last angle chart point\n";
         /// <summary>
-        /// generates a CSV representation of the results. get the column headers via GetCSVheader
+        /// generates a CSV representation of the results  (single line, KDU v37 style)
+        /// get the column headers via csvColumnHeaderSingleLine
         /// </summary>
         /// <param name="torqueUnitsForResStr">choose between "cNm","mNm","Nm","lbf-in","kgf-cm","lbf-ft","ozf-in"</param>
         /// <returns>a CSV (comma separated values) string representation of the results
         /// it follows the same format as the data saved by the KDU controller to a the USB drive
         /// can be read and visualized by programs like K-Graph (assuming the graph data was included)
         /// </returns>
-        public string GetResultsAsCSVstring(string torqueUnitsForResStr = "cNm")
+        public string GetResultsAsCSVstringSingleLine(string torqueUnitsForResStr = "Nm")
         {
             // this function was taken from another program and used a list of ushorts as the modbus data
             ushort[] mbResRegs_ush = new ushort[67];
             for(int i = 0; i < tighteningResultInputRegistersAsByteArray.Length; i+=2)
             {
-                mbResRegs_ush[i / 2] = BitConverter.ToUInt16(tighteningResultInputRegistersAsByteArray, i);
+                mbResRegs_ush[i / 2] = ModbusByteConversions.TwoModbusBigendianBytesToUshort(tighteningResultInputRegistersAsByteArray, i);
             }
             List<int> mbResRegs = mbResRegs_ush.Select(x => (int)x).ToList();
             string resultStringCSV = "";
@@ -285,7 +291,7 @@ namespace Kolver
             int serialNr = BitConverter.ToInt32(srBytes, 0);
             string targetTorque = ConvertModbusCNmTorqueStr(mbResRegs[15], torqueUnitsForResStr);
             int finalSpeed = mbResRegs[16];
-            string sTime = $"{mbResRegs[17] / 1000.0}:F2";
+            string sTime = $"{(mbResRegs[17] / 1000.0):F2}";
             int screwsMade = mbResRegs[18];
             int nScrews = mbResRegs[19];
             string sequence;
@@ -345,9 +351,10 @@ namespace Kolver
             int modelNr = mbResRegs[10];
             string graphUnits = (modelNr < 5) ? "mNm" : "cNm";
 
+            string graphTimeInterval = $"{torqueAngleGraph.getTimeIntervalBetweenConsecutivePoints()}";
             List<string> dataInOrder2 = new List<string>()
             {
-                dsTorque.ToString(), targetUnits, "deg,rpm,sec", dateStr, resultTxt, "deg,1", graphUnits, "1"
+                dsTorque.ToString(), targetUnits, "deg,rpm,sec", dateStr, resultTxt, graphUnits,graphTimeInterval,torqueAngleGraph.getTorqueSeriesAsCsvWith70columns(), graphTimeInterval,torqueAngleGraph.getAngleSeriesAsCsvWith70columns() //, "deg,1", graphUnits, "1"
             };
 
             resultStringCSV = csvSoFar + string.Join(",", dataInOrder2);

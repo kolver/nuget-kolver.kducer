@@ -28,6 +28,8 @@ namespace Kolver
 
         private const ushort IR_NEW_RESULT_SELFCLEARING_FLAG = 294;
         private static readonly (ushort addr, ushort count) IR_RESULT_DATA = (295, 67);
+        private static readonly (ushort addr, ushort count) IR_TORQUEGRAPH_DATA = (152, 71);
+        private static readonly (ushort addr, ushort count) IR_ANGLEGRAPH_DATA = (223, 71);
         private static readonly (ushort addr, ushort count) IR_CONTROLLER_SOFTWARE_VERSION = (370, 10);
         private const ushort COIL_STOP_MOTOR = 34;
         private const ushort COIL_REMOTE_LEVER = 32;
@@ -599,8 +601,12 @@ namespace Kolver
 
                 if (newResultFlag == 1)
                 {
-                    resultsQueue.Enqueue(new KducerTighteningResult(await mbClient.ReadInputRegistersAsync(Kducer.IR_RESULT_DATA.addr, Kducer.IR_RESULT_DATA.count).ConfigureAwait(false), replaceResultTimestampWithLocalTimestamp));
+                    byte[] resultInputRegisters = await mbClient.ReadInputRegistersAsync(Kducer.IR_RESULT_DATA.addr, Kducer.IR_RESULT_DATA.count).ConfigureAwait(false);
+                    byte[] torqueGraphRegisters = await mbClient.ReadInputRegistersAsync(Kducer.IR_TORQUEGRAPH_DATA.addr, Kducer.IR_TORQUEGRAPH_DATA.count).ConfigureAwait(false);
+                    byte[] angleGraphRegisters = await mbClient.ReadInputRegistersAsync(Kducer.IR_ANGLEGRAPH_DATA.addr, Kducer.IR_ANGLEGRAPH_DATA.count).ConfigureAwait(false);
+                    resultsQueue.Enqueue(new KducerTighteningResult(resultInputRegisters, replaceResultTimestampWithLocalTimestamp, new KducerTorqueAngleTimeGraph(torqueGraphRegisters, angleGraphRegisters)));
                     cancellationToken.ThrowIfCancellationRequested();
+
                     if (lockScrewdriverUntilResultsProcessed || lockScrewdriverIndefinitelyAfterResult)
                     {
                         await mbClient.WriteSingleCoilAsync(Kducer.COIL_STOP_MOTOR, true).ConfigureAwait(false);
@@ -658,7 +664,10 @@ namespace Kolver
                 }
                 await mbClient.WriteSingleCoilAsync(Kducer.COIL_REMOTE_LEVER, false).ConfigureAwait(false);
                 cancellationToken.ThrowIfCancellationRequested();
-                return new KducerTighteningResult(await mbClient.ReadInputRegistersAsync(Kducer.IR_RESULT_DATA.addr, Kducer.IR_RESULT_DATA.count).ConfigureAwait(false), replaceResultTimestampWithLocalTimestamp);
+                byte[] resultInputRegisters = await mbClient.ReadInputRegistersAsync(Kducer.IR_RESULT_DATA.addr, Kducer.IR_RESULT_DATA.count).ConfigureAwait(false);
+                byte[] torqueGraphRegisters = await mbClient.ReadInputRegistersAsync(Kducer.IR_TORQUEGRAPH_DATA.addr, Kducer.IR_TORQUEGRAPH_DATA.count).ConfigureAwait(false);
+                byte[] angleGraphRegisters = await mbClient.ReadInputRegistersAsync(Kducer.IR_ANGLEGRAPH_DATA.addr, Kducer.IR_ANGLEGRAPH_DATA.count).ConfigureAwait(false);
+                return new KducerTighteningResult(resultInputRegisters, replaceResultTimestampWithLocalTimestamp, new KducerTorqueAngleTimeGraph(torqueGraphRegisters, angleGraphRegisters));
             }
 
             internal static async Task<KducerTighteningProgram> GetTighteningProgramData(ReducedModbusTcpClientAsync mbClient, ushort programNumber)
