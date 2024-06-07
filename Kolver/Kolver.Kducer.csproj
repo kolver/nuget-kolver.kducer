@@ -3,7 +3,7 @@
   <PropertyGroup>
     <TargetFramework>netstandard2.0</TargetFramework>
     <SignAssembly>False</SignAssembly>
-    <Version>0.1.0-beta1</Version>
+    <Version>0.2.0-rc</Version>
     <ProduceReferenceAssembly>True</ProduceReferenceAssembly>
     <GenerateDocumentationFile>True</GenerateDocumentationFile>
     <GeneratePackageOnBuild>True</GeneratePackageOnBuild>
@@ -16,10 +16,10 @@ Brought to you by Kolver www.kolver.com</Description>
     <PackageProjectUrl>https://github.com/kolver/nuget-kolver.kducer</PackageProjectUrl>
     <PackageIcon>Kolver 128x128.png</PackageIcon>
     <PackageReadmeFile>README.md</PackageReadmeFile>
-    <RepositoryUrl></RepositoryUrl>
-    <RepositoryType></RepositoryType>
-    <PackageTags>kolver kducer k-ducer modbus modbusTCP torque screwdriver openprotocol open-protocol atlascopco atlas copco asg xpaq mountz cleco estic powerfocus toolsnet</PackageTags>
-    <PackageReleaseNotes>first beta public release</PackageReleaseNotes>
+    <RepositoryUrl>https://github.com/kolver/nuget-kolver.kducer.git</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageTags>kolver kducer k-ducer modbus modbusTCP torque screwdriver openprotocol open-protocol atlascopco atlas copco asg xpaq mountz cleco estic powerfocus powermacs toolsnet open protocol desoutter</PackageTags>
+    <PackageReleaseNotes>release candidate</PackageReleaseNotes>
     <EnforceCodeStyleInBuild>True</EnforceCodeStyleInBuild>
     <EnableNETAnalyzers>True</EnableNETAnalyzers>
     <AnalysisLevel>6.0-all</AnalysisLevel>

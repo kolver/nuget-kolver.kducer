@@ -69,7 +69,15 @@ namespace Kolver
             {
                 ArraySegment<byte> bytesChunk = new ArraySegment<byte>(data, bytesSent, data.Length - bytesSent);
                 wrapper[0] = bytesChunk;
-                int nBytesActuallySent = await Task<int>.Factory.FromAsync(socket.BeginSend, socket.EndSend, wrapper, SocketFlags.None, null).ConfigureAwait(false);
+                
+                Task<int> sendTask = Task<int>.Factory.FromAsync(socket.BeginSend, socket.EndSend, wrapper, SocketFlags.None, null);
+                Task socketTimeoutTask = Task.Delay(socket.SendTimeout);
+                Task completedTask = await Task.WhenAny(sendTask, socketTimeoutTask).ConfigureAwait(false);
+
+                if (completedTask == socketTimeoutTask)
+                    throw new SocketException(); // timed out before BeginSend completed
+
+                int nBytesActuallySent = sendTask.Result;
                 if (nBytesActuallySent == 0)
                     throw new SocketException();
 
@@ -93,7 +101,14 @@ namespace Kolver
             {
                 ArraySegment<byte> bytesChunk = new ArraySegment<byte>(data, bytesReceived, length - bytesReceived);
                 wrapper[0] = bytesChunk;
-                int nBytesActuallyReceived = await Task<int>.Factory.FromAsync(socket.BeginReceive, socket.EndReceive, wrapper, SocketFlags.None, null).ConfigureAwait(false);
+                Task<int> receiveTask = Task<int>.Factory.FromAsync(socket.BeginReceive, socket.EndReceive, wrapper, SocketFlags.None, null);
+                Task socketTimeoutTask = Task.Delay(socket.ReceiveTimeout);
+                Task completedTask = await Task.WhenAny(receiveTask, socketTimeoutTask).ConfigureAwait(false);
+
+                if (completedTask == socketTimeoutTask)
+                    throw new SocketException(); // timed out before BeginReceive completed
+
+                int nBytesActuallyReceived = receiveTask.Result;
                 if (nBytesActuallyReceived == 0)
                     throw new SocketException();
 
@@ -301,20 +316,40 @@ namespace Kolver
     public class ModbusException : Exception
     {
         private readonly int ModbusExceptionCode;
+        /// <summary>
+        /// represents a Modbus Exception
+        /// this can either be an error in the modbus response header
+        /// or a real modbus exception code
+        /// </summary>
         public ModbusException() { }
-
+        /// <summary>
+        /// represents a Modbus Exception
+        /// this can either be an error in the modbus response header
+        /// or a real modbus exception code
+        /// </summary>
         public ModbusException(string message)
             : base(message) { }
-
+        /// <summary>
+        /// represents a Modbus Exception
+        /// this can either be an error in the modbus response header
+        /// or a real modbus exception code
+        /// </summary>
         public ModbusException(string message, Exception inner)
             : base(message, inner) { }
-
+        /// <summary>
+        /// represents a Modbus Exception
+        /// this can either be an error in the modbus response header
+        /// or a real modbus exception code
+        /// </summary>
         public ModbusException(string message, int modbusExceptionCode)
         : this(message)
         {
             ModbusExceptionCode = modbusExceptionCode;
         }
-
+        /// <summary>
+        /// the modbus exception code
+        /// </summary>
+        /// <returns>the modbus exception code</returns>
         public int GetModbusExceptionCode() { return ModbusExceptionCode; }
     }
 }

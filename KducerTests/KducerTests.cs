@@ -2,10 +2,11 @@
 
 using Kolver;
 using Microsoft.Extensions.Logging.Abstractions;
-using System.Collections;
-using System.Linq;
 using System.Net;
+using System.Net.Sockets;
 
+// note: some of these tests require a real KDU-1A controller to be connected to pass. some require using the screwdriver to pass.
+// all the tests are run and must pass before every commit to the main branch
 namespace KducerTests
 {
     static class TestConstants
@@ -76,6 +77,19 @@ namespace KducerTests
             await kdu.WriteSingleCoilAsync(34, true);
             await Task.Delay(100);
             await kdu.WriteSingleCoilAsync(34, false);
+        }
+
+        [TestMethod]
+        [Timeout(10000)]
+        public async Task TestPullCableFromKdu()
+        {
+            using ReducedModbusTcpClientAsync kdu = new ReducedModbusTcpClientAsync(IPAddress.Parse(TestConstants.REAL_LIVE_KDU_IP));
+            await kdu.ConnectAsync();
+            Assert.IsTrue(kdu.Connected());
+            Console.WriteLine("Pull the cord in the next 5 seconds");
+            await Task.Delay(5000);
+            Console.WriteLine("Now checking if Exceptions are thrown");
+            await Assert.ThrowsExceptionAsync<System.Net.Sockets.SocketException>(async () => await kdu.ReadInputRegistersAsync(0, 10));
         }
     }
 
@@ -203,8 +217,12 @@ namespace KducerTests
             Assert.AreEqual(pr_set, pr_get);
         }
 
+        /// <summary>
+        /// this test is used to verify stability with quick consecutive manual tightenings
+        /// it blocks indefinitely and is not supposed to pass
+        /// </summary>
+        /// <returns></returns>
         [TestMethod]
-        //[Timeout(10000)]
         public async Task TestStability()
         {
             using Kducer kdu = new Kducer(IPAddress.Parse(TestConstants.REAL_LIVE_KDU_IP), NullLoggerFactory.Instance);
@@ -221,6 +239,52 @@ namespace KducerTests
                 KducerTighteningResult kr = await kdu.GetResultAsync(CancellationToken.None);
                 await kdu.EnableScrewdriver();
             }
+        }
+
+        [TestMethod]
+        [Timeout(20000)]
+        public async Task TestPullCableFromKdu()
+        {
+            using Kducer kdu = new Kducer(IPAddress.Parse(TestConstants.REAL_LIVE_KDU_IP), NullLoggerFactory.Instance);
+            Assert.IsTrue(await kdu.IsConnectedWithTimeoutAsync(500));
+            Assert.IsTrue(kdu.IsConnected());
+            Console.WriteLine("Pull the cord in the next 5 seconds");
+            await Task.Delay(5000);
+            Console.WriteLine("Now checking if exceptions are thrown");
+            Assert.IsFalse(kdu.IsConnected());
+            Assert.IsFalse(kdu.IsConnectedWithTimeoutBlocking(250));
+            Assert.IsFalse(await kdu.IsConnectedWithTimeoutAsync(250));
+            await Assert.ThrowsExceptionAsync<SocketException>(async () => await kdu.GetResultAsync(CancellationToken.None, true));
+        }
+
+        [TestMethod]
+        [Timeout(30000)]
+        public async Task TestAutoReconnectToKdu()
+        {
+            using Kducer kdu = new Kducer(IPAddress.Parse(TestConstants.REAL_LIVE_KDU_IP), NullLoggerFactory.Instance);
+            Assert.IsTrue(await kdu.IsConnectedWithTimeoutAsync(500));
+            Assert.IsTrue(kdu.IsConnected());
+            Console.WriteLine("Pull the cord in the next 5 seconds");
+            await Task.Delay(5000);
+            Assert.IsFalse(kdu.IsConnected());
+            Assert.IsFalse(kdu.IsConnectedWithTimeoutBlocking(250));
+            Assert.IsFalse(await kdu.IsConnectedWithTimeoutAsync(250));
+            Console.WriteLine("Plug the cord back in");
+            Assert.IsTrue(kdu.IsConnectedWithTimeoutBlocking(5000));
+            Assert.IsTrue(await kdu.IsConnectedWithTimeoutAsync(500));
+            Assert.IsTrue(kdu.IsConnected());
+            await kdu.GetResultAsync(CancellationToken.None, true);
+        }
+
+        [TestMethod]
+        [Timeout(1000)]
+        public async Task TestGetResultThrowsExceptionWhenDisconnected()
+        {
+            using Kducer kdu = new Kducer(IPAddress.Parse(TestConstants.OFF_OR_DC_KDU_IP), NullLoggerFactory.Instance);
+            Assert.IsFalse(kdu.IsConnected());
+            Assert.IsFalse(kdu.IsConnectedWithTimeoutBlocking(250));
+            Assert.IsFalse(await kdu.IsConnectedWithTimeoutAsync(250));
+            await Assert.ThrowsExceptionAsync<System.Net.Sockets.SocketException>(async () => await kdu.GetResultAsync(CancellationToken.None, true));
         }
 
     }

@@ -1,13 +1,12 @@
 ﻿// Copyright (c) 2024 Kolver Srl www.kolver.com MIT license
 
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
-using System.Linq;
 using System.Net;
 using System.Net.Sockets;
-using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -57,7 +56,11 @@ namespace Kolver
 
         /// <summary>
         /// istantiates a Kducer and starts async communications with the KDU controller
-        /// communications are stopped automatically when this object is disposed
+        /// the underlying TCP/IP connection with the KDU starts automatically after instantiating this object
+        /// you can confirm/await the connection via the corresponding IsConnected methods
+        /// if the TCP/IP connection drops, this object will automatically reattempt to connect indefinitely
+        /// TCP/IP communications are stopped ONLY when this object is disposed
+        /// if you need to stop the TCP/IP communications immediately, you must call Dispose() on this object (after which you cannot use it anymore)
         /// </summary>
         /// <param name="kduIpAddress">IP address of the KDU controller</param>
         /// <param name="loggerFactory">optional, pass to log info, warnings, and errors. pass NullLoggerFactory.Instance if not needed</param>
@@ -76,12 +79,44 @@ namespace Kolver
         }
         /// <summary>
         /// istantiates a Kducer and starts async communications with the KDU controller
+        /// the underlying TCP/IP connection with the KDU starts automatically after instantiating this object
+        /// you can confirm/await the connection via the corresponding IsConnected methods
+        /// if the TCP/IP connection drops, this object will automatically reattempt to connect indefinitely
+        /// TCP/IP communications are stopped ONLY when this object is disposed
+        /// if you need to stop the TCP/IP communications immediately, you must call Dispose() on this object (after which you cannot use it anymore)
         /// </summary>
         /// <param name="kduIpAddress">IP address of the KDU controller</param>
         /// <param name="loggerFactory">optional, pass to log info, warnings, and errors. pass NullLoggerFactory.Instance if not needed</param>
         /// <param name="tcpRxTxTimeoutMs">tcp tx/rx timeout/interval for individual Modbus TCP exchanges with the KDU controller</param>
-        public Kducer(String kduIpAddress, ILoggerFactory loggerFactory, int tcpRxTxTimeoutMs = defaultRxTxSocketTimeout) :
+        public Kducer(string kduIpAddress, ILoggerFactory loggerFactory, int tcpRxTxTimeoutMs = defaultRxTxSocketTimeout) :
             this(IPAddress.Parse(kduIpAddress), loggerFactory, tcpRxTxTimeoutMs) { }
+
+        /// <summary>
+        /// istantiates a Kducer and starts async communications with the KDU controller
+        /// the underlying TCP/IP connection with the KDU starts automatically after instantiating this object
+        /// you can confirm/await the connection via the corresponding IsConnected methods
+        /// if the TCP/IP connection drops, this object will automatically reattempt to connect indefinitely
+        /// TCP/IP communications are stopped ONLY when this object is disposed
+        /// if you need to stop the TCP/IP communications immediately, you must call Dispose() on this object (after which you cannot use it anymore)
+        /// </summary>
+        /// <param name="kduIpAddress">IP address of the KDU controller</param>
+        /// <param name="tcpRxTxTimeoutMs">tcp tx/rx timeout/interval for individual Modbus TCP exchanges with the KDU controller</param>
+        public Kducer(string kduIpAddress, int tcpRxTxTimeoutMs = defaultRxTxSocketTimeout) :
+            this(IPAddress.Parse(kduIpAddress), NullLoggerFactory.Instance, tcpRxTxTimeoutMs)
+        { }
+        /// <summary>
+        /// istantiates a Kducer and starts async communications with the KDU controller
+        /// the underlying TCP/IP connection with the KDU starts automatically after instantiating this object
+        /// you can confirm/await the connection via the corresponding IsConnected methods
+        /// if the TCP/IP connection drops, this object will automatically reattempt to connect indefinitely
+        /// TCP/IP communications are stopped ONLY when this object is disposed
+        /// if you need to stop the TCP/IP communications immediately, you must call Dispose() on this object (after which you cannot use it anymore)
+        /// </summary>
+        /// <param name="kduIpAddress">IP address of the KDU controller</param>
+        /// <param name="tcpRxTxTimeoutMs">tcp tx/rx timeout/interval for individual Modbus TCP exchanges with the KDU controller</param>
+        public Kducer(IPAddress kduIpAddress, int tcpRxTxTimeoutMs = defaultRxTxSocketTimeout) :
+            this(kduIpAddress, NullLoggerFactory.Instance, tcpRxTxTimeoutMs)
+        { }
         /// <summary>
         /// if true, the screwdriver lever is disabled ("stop motor on") after a new result is detected internally by this library
         /// the screwdriver is automatically re-enabled when you (the user) obtain the tightening result via "GetResultAsync" (unless lockScrewdriverIndefinitelyAfterResult is true)
@@ -108,6 +143,50 @@ namespace Kolver
         /// </summary>
         /// <param name="milliseconds"></param>
         public void ChangeModbusTcpCyclicPollingInterval(int milliseconds) { POLL_INTERVAL_MS = milliseconds; }
+        /// <summary>
+        /// note: after istantiating the Kducer object, it may take a few hundred milliseconds to establish the connection
+        /// returns true if the KDU is connected, false otherwise
+        /// </summary>
+        /// <returns>true if the KDU is connected, false otherwise</returns>
+        public bool IsConnected() { return mbClient.Connected(); }
+        /// <summary>
+        /// this function awaits up to the provided time (timeoutMs) for the KDU to be connected
+        /// </summary>
+        /// <param name="timeoutMs">milliseconds to wait before returning false, if the kdu is still not connected</param>
+        /// <returns>the task returns true as soon as the KDU is connected, false if it's still not connected after the timeout expires</returns>
+        public async Task<bool> IsConnectedWithTimeoutAsync(int timeoutMs = 1000)
+        {
+            int cnt = 0;
+            while (mbClient.Connected() == false)
+            {
+                cnt += POLL_INTERVAL_MS;
+                if (cnt > timeoutMs)
+                {
+                    return false;
+                }
+                await Task.Delay(POLL_INTERVAL_MS, asyncCommsCts.Token).ConfigureAwait(false);
+            }
+            return true;
+        }
+        /// <summary>
+        /// this function blocks up to the provided time (timeoutMs) waiting for the KDU to be connected
+        /// </summary>
+        /// <param name="timeoutMs">milliseconds to wait before returning false, if the kdu is still not connected</param>
+        /// <returns>true as soon as the KDU is connected, false if it's still not connected after the timeout expires</returns>
+        public bool IsConnectedWithTimeoutBlocking(int timeoutMs = 1000)
+        {
+            int cnt = 0;
+            while (mbClient.Connected() == false)
+            {
+                cnt += POLL_INTERVAL_MS;
+                if (cnt > timeoutMs)
+                {
+                    return false;
+                }
+                Thread.Sleep(POLL_INTERVAL_MS);
+            }
+            return true;
+        }
 
         private void StartAsyncComms()
         {
@@ -138,23 +217,24 @@ namespace Kolver
                         asyncCommsCts.Token.ThrowIfCancellationRequested();
 
                         Task interval = Task.Delay(POLL_INTERVAL_MS, asyncCommsCts.Token);
+                        Task commsTask;
 
                         if (userCmdTaskQueue.TryDequeue(out KduUserCmdTaskAsync userCmd))
                         {
-                            await userCmd.ProcessUserCmdTaskAsync(mbClient).ConfigureAwait(false);
+                            commsTask = userCmd.ProcessUserCmdTaskAsync(mbClient);
                         }
                         else
                         {
-                            await KduAsyncOperationTasks.CheckAndEnqueueKduResult(resultsQueue, mbClient, lockScrewdriverUntilGetResult, lockScrewdriverIndefinitelyAfterResult, replaceResultTimestampWithLocalTimestamp, asyncCommsCts.Token).ConfigureAwait(false);
+                            commsTask = KduAsyncOperationTasks.CheckAndEnqueueKduResult(resultsQueue, mbClient, lockScrewdriverUntilGetResult, lockScrewdriverIndefinitelyAfterResult, replaceResultTimestampWithLocalTimestamp, asyncCommsCts.Token);
                         }
+
+                        await Task.WhenAll(interval, commsTask).ConfigureAwait(false);
 
                         if (resultsQueue.Count >= largeResultsQueueWarningThreshold)
                         {
                             kduLogger.LogWarning("There are {NumberOfKducerTighteningResult} accumulated in the FIFO tightening results queue. Did you forget to dispose this Kducer object?", resultsQueue.Count);
                             largeResultsQueueWarningThreshold *= 10;
                         }
-
-                        await interval.ConfigureAwait(false);
                     }
                 }
                 catch (Exception quitTask) when (quitTask is OperationCanceledException || quitTask is ObjectDisposedException)
@@ -218,12 +298,14 @@ namespace Kolver
 
         /// <summary>
         /// Creates a task that returns and removes a tightening result from the FIFO results queue. The task awaits until there is a result to return.
-        /// If the KDU is disconnected or disconnects, the task will continue attempting to reconnect and wait indefinitely until there is a result to return,
-        /// TCP socket exceptions will not be propagated.
+        /// The Kducer instance automatically attempts to reconnect if the TCP connection drops.
+        /// In case the connection drops, you can decide whether this method should wait indefinitely to reconnect, or throw an exception, via throwExceptionIfKduConnectionDrops
         /// </summary>
         /// <param name="cancellationToken">to cancel this task. use CancellationToken.None if not needed.</param>
+        /// <param name="throwExceptionIfKduConnectionDrops">if true and the TCP connection to the KDU drops, this method throws an exception. If false, this method waits indefinitely until the KDU reconnects</param>
+        /// <exception cref="SocketException">if throwExceptionIfKduConnectionDrops is true and the TCP connection drops, this exception will be thrown</exception>
         /// <returns>a KducerTighteningResult object (from a FIFO queue) from which you can obtain data about the tightening result</returns>
-        public async Task<KducerTighteningResult> GetResultAsync(CancellationToken cancellationToken)
+        public async Task<KducerTighteningResult> GetResultAsync(CancellationToken cancellationToken, bool throwExceptionIfKduConnectionDrops = false)
         {
             CancellationTokenSource cancelGetResult = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, asyncCommsCts.Token);
             CancellationToken cancel = cancelGetResult.Token;
@@ -239,6 +321,11 @@ namespace Kolver
                     }
                 }
                 await Task.Delay(POLL_INTERVAL_MS, cancel).ConfigureAwait(false);
+                if (throwExceptionIfKduConnectionDrops == true)
+                {
+                    if (mbClient.Connected() == false)
+                        throw new SocketException();
+                }
             }
         }
 
