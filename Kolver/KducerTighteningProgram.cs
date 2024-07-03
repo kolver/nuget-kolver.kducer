@@ -8,8 +8,9 @@ using System.Runtime.CompilerServices;
 namespace Kolver
 {
     /// <summary>
-    /// Representation of the tightening result data provided by the KDU controller
-    /// Provides convenience methods to get and set the data
+    /// Representation of a tightening program of a Kducer controller with all its parameters
+    /// Provides convenience methods to get and set each parameter
+    /// You can serialize the program using getProgramModbusHoldingRegistersAsByteArray for storing to a file or database
     /// </summary>
     public class KducerTighteningProgram
     {
@@ -54,25 +55,25 @@ namespace Kolver
             if (screwdriverModel == null)
                 throw new ArgumentNullException(nameof(screwdriverModel));
 
-            if (screwdriverModel.StartsWith("KDS-MT1.5"))
+            if (screwdriverModel.StartsWith("KDS-MT1.5", StringComparison.Ordinal))
                 defaultProgramBytesForKDSMT15.CopyTo(this.tighteningProgramHoldingRegistersAsByteArray, 0);
-            else if (screwdriverModel.StartsWith("KDS-PL6"))
+            else if (screwdriverModel.StartsWith("KDS-PL6", StringComparison.Ordinal))
                 defaultProgramBytesForKDSPL6.CopyTo(this.tighteningProgramHoldingRegistersAsByteArray, 0);
-            else if (screwdriverModel.StartsWith("KDS-PL10"))
+            else if (screwdriverModel.StartsWith("KDS-PL10", StringComparison.Ordinal))
                 defaultProgramBytesForKDSPL10.CopyTo(this.tighteningProgramHoldingRegistersAsByteArray, 0);
-            else if (screwdriverModel.StartsWith("KDS-PL15"))
+            else if (screwdriverModel.StartsWith("KDS-PL15", StringComparison.Ordinal))
                 defaultProgramBytesForKDSPL15.CopyTo(this.tighteningProgramHoldingRegistersAsByteArray, 0);
-            else if (screwdriverModel.StartsWith("KDS-PL20"))
+            else if (screwdriverModel.StartsWith("KDS-PL20", StringComparison.Ordinal))
                 defaultProgramBytesForKDSPL20.CopyTo(this.tighteningProgramHoldingRegistersAsByteArray, 0);
-            else if (screwdriverModel.StartsWith("KDS-PL30"))
+            else if (screwdriverModel.StartsWith("KDS-PL30", StringComparison.Ordinal))
                 defaultProgramBytesForKDSPL30.CopyTo(this.tighteningProgramHoldingRegistersAsByteArray, 0);
-            else if (screwdriverModel.StartsWith("KDS-PL35"))
+            else if (screwdriverModel.StartsWith("KDS-PL35", StringComparison.Ordinal))
                 defaultProgramBytesForKDSPL35.CopyTo(this.tighteningProgramHoldingRegistersAsByteArray, 0);
-            else if (screwdriverModel.StartsWith("KDS-PL45"))
+            else if (screwdriverModel.StartsWith("KDS-PL45", StringComparison.Ordinal))
                 defaultProgramBytesForKDSPL45.CopyTo(this.tighteningProgramHoldingRegistersAsByteArray, 0);
-            else if (screwdriverModel.StartsWith("KDS-PL50"))
+            else if (screwdriverModel.StartsWith("KDS-PL50", StringComparison.Ordinal))
                 defaultProgramBytesForKDSPL50.CopyTo(this.tighteningProgramHoldingRegistersAsByteArray, 0);
-            else if (screwdriverModel.StartsWith("KDS-PL70"))
+            else if (screwdriverModel.StartsWith("KDS-PL70", StringComparison.Ordinal))
                 defaultProgramBytesForKDSPL70.CopyTo(this.tighteningProgramHoldingRegistersAsByteArray, 0);
             else
                 throw new ArgumentException("Invalid model, choose from: KDS-MT1.5 (default), KDS-PL6, KDS-PL10, KDS-PL15, KDS-PL20, KDS-PL30, KDS-PL35, KDS-PL45, KDS-PL50, KDS-PL70");

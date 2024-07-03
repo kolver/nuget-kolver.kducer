@@ -286,7 +286,126 @@ namespace KducerTests
             Assert.IsFalse(await kdu.IsConnectedWithTimeoutAsync(250));
             await Assert.ThrowsExceptionAsync<System.Net.Sockets.SocketException>(async () => await kdu.GetResultAsync(CancellationToken.None, true));
         }
+        [TestMethod]
+        [Timeout(10000)]
+        public async Task TestSendBarcode()
+        {
+            using Kducer kdu = new Kducer(IPAddress.Parse(TestConstants.REAL_LIVE_KDU_IP), NullLoggerFactory.Instance);
+            Assert.IsTrue(await kdu.IsConnectedWithTimeoutAsync(500));
+            Assert.IsTrue(kdu.IsConnected());
+            List<string> valid_barcodes = [" ", "ABcd", "1234567890123456", "!@#$%^&*()_-=|\\-", ",,,,", "my unique code"];
+            foreach (string barcode in valid_barcodes)
+            {
+                Console.WriteLine($"Look at the barcode, should be {barcode}");
+                await kdu.SendBarcodeAsync(barcode);
+                await Task.Delay(1000);
+            }
+        }
 
+
+        [TestMethod]
+        [Timeout(10000)]
+        public async Task TestSendBarcodeWithResults()
+        {
+            using Kducer kdu = new Kducer(IPAddress.Parse(TestConstants.REAL_LIVE_KDU_IP), NullLoggerFactory.Instance);
+            Assert.IsTrue(await kdu.IsConnectedWithTimeoutAsync(500));
+            Assert.IsTrue(kdu.IsConnected());
+            // send an angle control program for quick testing
+            KducerTighteningProgram pr = new KducerTighteningProgram();
+            pr.SetTorqueAngleMode(1);
+            pr.SetAngleTarget(1);
+            pr.SetFinalSpeed(50);
+            await kdu.SendNewProgramDataAsync(1, pr);
+
+            List<string> valid_barcodes = ["", "ABcd", "1234567890123456", "!@#$%^&*()_-=|\\-", "/?,.:;\'\"{}[]", "my unique code"]; // note: commas are replaced with dots because CSV results!
+
+            await Assert.ThrowsExceptionAsync<ArgumentException>(async () => await kdu.SendBarcodeAsync("this barcode is too long!"));
+            await Assert.ThrowsExceptionAsync<ArgumentException>(async () => await kdu.SendBarcodeAsync("12345678901234567")); // 17 chars, too long
+
+            foreach( string barcode in valid_barcodes )
+            {
+                await kdu.SendBarcodeAsync(barcode);
+                KducerTighteningResult res = await kdu.RunScrewdriverUntilResultAsync(CancellationToken.None);
+                string bc = res.GetBarcode();
+                if (string.IsNullOrEmpty(barcode))
+                    Assert.IsTrue(bc.Equals(" "));
+                else
+                    Assert.IsTrue(bc.Equals(barcode.Replace(',', '.')));
+                // do twice, barcode should stay if program didn't change
+                res = await kdu.RunScrewdriverUntilResultAsync(CancellationToken.None);
+                bc = res.GetBarcode();
+                if (string.IsNullOrEmpty(barcode))
+                    Assert.IsTrue(bc.Equals(" "));
+                else
+                    Assert.IsTrue(bc.Equals(barcode.Replace(',', '.')));
+            }
+            // verify barcode goes away when changing programs
+            pr = new KducerTighteningProgram();
+            pr.SetTorqueAngleMode(1);
+            pr.SetAngleTarget(1);
+            pr.SetFinalSpeed(50);
+            await kdu.SendNewProgramDataAsync(2, pr);
+            KducerTighteningResult res2 = await kdu.RunScrewdriverUntilResultAsync(CancellationToken.None);
+            Assert.IsTrue(res2.GetBarcode().Equals(""));
+        }
+
+        [TestMethod]
+        [Timeout(10000)]
+        public async Task TestSendSequenceData()
+        {
+            using Kducer kdu = new Kducer(IPAddress.Parse(TestConstants.REAL_LIVE_KDU_IP));
+
+            KducerSequenceOfTighteningPrograms seq = new KducerSequenceOfTighteningPrograms([1, 2, 3, 6], [0, 0, 1, 2], [3, 50, 3, 3], "barcode");
+
+            await kdu.SendNewSequenceDataAsync(1, seq);
+            KducerSequenceOfTighteningPrograms seqRead = await kdu.GetActiveSequenceDataAsync();
+            Assert.IsTrue(seqRead.getSequenceModbusHoldingRegistersAsByteArray().SequenceEqual(seq.getSequenceModbusHoldingRegistersAsByteArray()));
+        }
+
+        [TestMethod]
+        [Timeout(30000)]
+        public async Task TestGetSequenceData()
+        {
+            using Kducer kdu = new Kducer(IPAddress.Parse(TestConstants.REAL_LIVE_KDU_IP));
+
+            ushort sequenceNumber = 24;
+            if (await kdu.GetKduMainboardVersion() < 38)
+                sequenceNumber = 8;
+
+            KducerSequenceOfTighteningPrograms seqRead = await kdu.GetSequenceDataAsync(sequenceNumber);
+
+            await kdu.SendNewSequenceDataAsync(sequenceNumber, seqRead);
+
+            KducerSequenceOfTighteningPrograms seqReRead = await kdu.GetSequenceDataAsync(sequenceNumber);
+
+            Assert.IsTrue(seqRead.getSequenceModbusHoldingRegistersAsByteArray().SequenceEqual(seqReRead.getSequenceModbusHoldingRegistersAsByteArray()));
+        }
+
+        [TestMethod]
+        [Timeout(30000)]
+        public async Task TestSendMultipleSequencesData()
+        {
+            using Kducer kdu = new Kducer(IPAddress.Parse(TestConstants.REAL_LIVE_KDU_IP));
+
+            KducerSequenceOfTighteningPrograms seq = new KducerSequenceOfTighteningPrograms([1, 2, 3, 6], [0, 0, 1, 2], [3, 50, 3, 3]);
+
+            Dictionary<ushort, KducerSequenceOfTighteningPrograms> seqDic = new();
+            ushort maxSeq = 24;
+            if (await kdu.GetKduMainboardVersion() < 38)
+            {
+                maxSeq = 8;
+                seq = new KducerSequenceOfTighteningPrograms([1, 2, 3, 6], [0, 0, 1, 2], [3, 50, 3, 3], "", 37);
+            }
+
+            for (ushort i = 1; i <= maxSeq; i++)
+                seqDic.Add(i, seq);
+
+            await kdu.SendMultipleNewSequencesDataAsync(seqDic);
+
+            Dictionary<ushort, KducerSequenceOfTighteningPrograms> seqRead = await kdu.GetAllSequencesDataAsync();
+            for (ushort i = 1; i <= maxSeq; i++)
+                Assert.IsTrue(seqRead[i].getSequenceModbusHoldingRegistersAsByteArray().SequenceEqual(seqDic[i].getSequenceModbusHoldingRegistersAsByteArray()));
+        }
     }
 
     [TestClass]
@@ -444,6 +563,100 @@ namespace KducerTests
             builtPr.SetAfterTighteningReverseDelay(8);
             builtPr.SetAfterTighteningReverseMode(0);
             builtPr.SetTorqueCompensationValue(1000);
+        }
+    }
+
+    [TestClass]
+    public class KducerSequenceOfTighteningProgramsTests
+    {
+        [TestMethod]
+        public void TestConstructors()
+        {
+            byte[] defaultSeq = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3];
+            KducerSequenceOfTighteningPrograms seq = new KducerSequenceOfTighteningPrograms(defaultSeq);
+            byte[] seqBytesFromseq = seq.getSequenceModbusHoldingRegistersAsByteArray();
+            Assert.IsTrue(defaultSeq.SequenceEqual<byte>(seqBytesFromseq));
+
+            byte[] progs = [1];
+            byte[] links = [1];
+            seq = new KducerSequenceOfTighteningPrograms(progs.ToList(), links.ToList());
+            seqBytesFromseq = seq.getSequenceModbusHoldingRegistersAsByteArray();
+            Assert.IsTrue(defaultSeq.SequenceEqual<byte>(seqBytesFromseq));
+            Assert.IsTrue(new List<byte>(progs).SequenceEqual(seq.getProgramsAsByteArray()));
+            Assert.IsTrue(new List<byte>(links).SequenceEqual(seq.getLinkModesAsByteArray()));
+            Assert.IsTrue(new List<byte>([3]).SequenceEqual(seq.getLinkTimesAsByteArray()));
+
+            byte[] mixedSeq = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 2, 3, 6, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3, 50, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3];
+            seq = new KducerSequenceOfTighteningPrograms([1, 2, 3, 6], [0, 0, 1, 2], [0, 50, 0, 0]);
+            seqBytesFromseq = seq.getSequenceModbusHoldingRegistersAsByteArray();
+            Assert.IsTrue(mixedSeq.SequenceEqual<byte>(seqBytesFromseq));
+            Assert.IsTrue(new List<byte>([3, 50, 3, 3]).SequenceEqual(seq.getLinkTimesAsByteArray()));
+            seq = new KducerSequenceOfTighteningPrograms([1, 2, 3, 6], [0, 0, 1, 2], [0, 50, 0, 0]);
+            seqBytesFromseq = seq.getSequenceModbusHoldingRegistersAsByteArray();
+            Assert.IsTrue(mixedSeq.SequenceEqual<byte>(seqBytesFromseq));
+            seq = new KducerSequenceOfTighteningPrograms([1, 2, 3, 6], [0, 0, 1, 2], [0, 50, 0, 0, 3, 3]);
+            seqBytesFromseq = seq.getSequenceModbusHoldingRegistersAsByteArray();
+            Assert.IsTrue(mixedSeq.SequenceEqual<byte>(seqBytesFromseq));
+
+            seq = new KducerSequenceOfTighteningPrograms([1, 2, 3, 6], [0, 0, 1, 2], [0, 0, 0, 0]);
+            seqBytesFromseq = seq.getSequenceModbusHoldingRegistersAsByteArray();
+            Assert.IsFalse(mixedSeq.SequenceEqual<byte>(seqBytesFromseq));
+            Assert.IsTrue(new List<byte>([1, 2, 3, 6]).SequenceEqual(seq.getProgramsAsByteArray()));
+            Assert.IsTrue(new List<byte>([0, 0, 1, 2]).SequenceEqual(seq.getLinkModesAsByteArray()));
+
+            // must throw no exception
+            seq = new KducerSequenceOfTighteningPrograms(new List<byte>([1, 2, 3, 60]));
+            Assert.IsTrue(seq.GetBarcode().Equals(""));
+            seq = new KducerSequenceOfTighteningPrograms(new List<byte>([1, 2, 3, 6, 0, 35]));
+            seq = new KducerSequenceOfTighteningPrograms(new List<byte>([200, 200, 200]));
+            seq = new KducerSequenceOfTighteningPrograms([200, 200, 200], null, "");
+            seq = new KducerSequenceOfTighteningPrograms([200, 200, 200], null, null, "");
+            seq = new KducerSequenceOfTighteningPrograms([200, 200, 200], [], "");
+            seq = new KducerSequenceOfTighteningPrograms([200, 200, 200], [], [], "");
+            seq = new KducerSequenceOfTighteningPrograms([200, 200, 200], [], "");
+            seq = new KducerSequenceOfTighteningPrograms([200, 200, 200], null, [], "");
+            seq = new KducerSequenceOfTighteningPrograms([200, 200, 200], [], null, "");
+            Assert.IsTrue(seq.GetBarcode().Equals(""));
+            seq = new KducerSequenceOfTighteningPrograms([200, 200, 200], [], [], null);
+            Assert.IsTrue(seq.GetBarcode().Equals(""));
+            seq = new KducerSequenceOfTighteningPrograms([200, 200, 200], "1234567890123456");
+            Assert.IsTrue(seq.GetBarcode().Equals("1234567890123456"));
+            seq = new KducerSequenceOfTighteningPrograms([200, 200, 200], [2, 1, 0], [3]);
+            seq = new KducerSequenceOfTighteningPrograms([200, 200, 200], [2, 1, 0], [3, 3, 3, 3, 3]);
+            seq = new KducerSequenceOfTighteningPrograms(Enumerable.Repeat<byte>(2, 16).ToList());
+            seq.getSequenceModbusHoldingRegistersAsByteArray_KDUv37andPrior();
+            seq.getSequenceModbusHoldingRegistersAsByteArray_KDUv38andLater();
+            seq.getSequenceModbusHoldingRegistersAsByteArray();
+
+            Assert.ThrowsException<ArgumentException>(() => new KducerSequenceOfTighteningPrograms(new List<byte>([0])));
+            Assert.ThrowsException<ArgumentException>(() => new KducerSequenceOfTighteningPrograms(new List<byte>([0,1,2])));
+            Assert.ThrowsException<ArgumentException>(() => new KducerSequenceOfTighteningPrograms(new List<byte>([])));
+            Assert.ThrowsException<ArgumentException>(() => new KducerSequenceOfTighteningPrograms([0]));
+            Assert.ThrowsException<ArgumentException>(() => new KducerSequenceOfTighteningPrograms([0, 1, 2]));
+            Assert.ThrowsException<ArgumentException>(() => new KducerSequenceOfTighteningPrograms([]));
+            Assert.ThrowsException<ArgumentNullException>(() => new KducerSequenceOfTighteningPrograms(null));
+            Assert.ThrowsException<ArgumentNullException>(() => new KducerSequenceOfTighteningPrograms(null, null, null, null));
+            Assert.ThrowsException<ArgumentException>(() => new KducerSequenceOfTighteningPrograms([200], "", 37));
+            Assert.ThrowsException<ArgumentException>(() => new KducerSequenceOfTighteningPrograms([200], "this barcode is too long"));
+            Assert.ThrowsException<ArgumentException>(() => new KducerSequenceOfTighteningPrograms([200], "12345678901234567"));
+            Assert.ThrowsException<ArgumentException>(() => new KducerSequenceOfTighteningPrograms([1], [3]));
+            Assert.ThrowsException<ArgumentException>(() => new KducerSequenceOfTighteningPrograms([1], [2,2]));
+            Assert.ThrowsException<ArgumentException>(() => new KducerSequenceOfTighteningPrograms([1,1], [2]));
+            Assert.ThrowsException<ArgumentException>(() => new KducerSequenceOfTighteningPrograms([1, 1], [2], [3]));
+
+            // list constructor
+            seq = new KducerSequenceOfTighteningPrograms(Enumerable.Repeat<byte>(2, 16).ToList());
+            seq = new KducerSequenceOfTighteningPrograms(Enumerable.Repeat<byte>(2, 32).ToList());
+            Assert.ThrowsException<ArgumentException>(() => new KducerSequenceOfTighteningPrograms(Enumerable.Repeat<byte>(2, 33).ToList()));
+
+            // array constructor
+            seq = new KducerSequenceOfTighteningPrograms(Enumerable.Repeat<byte>(2, 64).ToList().ToArray());
+            seq = new KducerSequenceOfTighteningPrograms(Enumerable.Repeat<byte>(2, 112).ToList().ToArray());
+            Assert.ThrowsException<ArgumentException>(() => new KducerSequenceOfTighteningPrograms(Enumerable.Repeat<byte>(2, 65).ToList().ToArray()));
+
+            // asking for v37 sequence with more than 16 programs
+            Assert.ThrowsException<InvalidOperationException>(() => new KducerSequenceOfTighteningPrograms(Enumerable.Repeat<byte>(2, 112).ToList().ToArray()).getSequenceModbusHoldingRegistersAsByteArray_KDUv37andPrior());
+            
         }
     }
 
