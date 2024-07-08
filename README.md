@@ -111,6 +111,7 @@ byte[] serializedProgram = programFromScratch.getProgramModbusHoldingRegistersAs
 // recreate the program from the serialized bytes
 KducerTighteningProgram recreatedProgram = new KducerTighteningProgram(serializedProgram);
 ```
+There is equivalent functionality for creating and uploading sequences and general settings of the KDU controller.
 ### Connection management
 #### Internal Modbus TCP/IP task
 The Kducer object maintains an internal async tasks that periodically polls the KDU-1A over Modbus TCP for new results, and/or executes the other operations requested.  
@@ -131,7 +132,6 @@ When instantiating a Kducer, you can optionally pass a socket timeout parameter.
 Future features:
 - customer requests!
 - support for KDU-NT series controller
-- support for reading and writing sequences
 ## License
 MIT License
 

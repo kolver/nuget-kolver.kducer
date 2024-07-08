@@ -1,7 +1,6 @@
 ﻿// Copyright (c) 2024 Kolver Srl www.kolver.com MIT license
 
 using System;
-using System.Collections;
 using System.Runtime.CompilerServices;
 [assembly: InternalsVisibleTo("KducerTests")]
 

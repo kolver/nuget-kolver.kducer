@@ -14,6 +14,8 @@ using System.Threading.Tasks;
 
 namespace Kolver
 {
+#pragma warning disable CA1063 // the dispose implementation is correct
+#pragma warning disable CA1816 // the dispose implementation is correct
     /// <summary>
     /// Represents a KDU controller and provides convenience methods to control and monitor the controller.
     /// Handles cyclic Modbus TCP communications automatically via TAP (async/await).
@@ -40,6 +42,9 @@ namespace Kolver
         private const ushort HR_PROGRAM_DATA_65_TO_200 = 7790;
         private const ushort HR_SEQUENCE_DATA_1_TO_8 = 7405;
         private const ushort HR_SEQUENCE_DATA_9_TO_24 = 7950;
+        private const ushort HR_GENERALSETTINGS_V37 = 7361;
+        private const ushort HR_GENERALSETTINGS = 7906;
+        private const ushort HR_SEQUENCE_PROGRAM_MODE = 7374;
         private const ushort HR_PERMANENT_MEMORY_REPROGRAM = 7789;
         private const ushort HR_BARCODE = 7379;
 
@@ -329,19 +334,21 @@ namespace Kolver
                 if (throwExceptionIfKduConnectionDrops == true)
                 {
                     if (mbClient.Connected() == false)
-                        throw new SocketException();
+                        throw new SocketException(10057); // not connected
                 }
             }
         }
 
         /// <summary>
-        /// Selects a program on the KDU and waits 300ms to ensure the KDU program is loaded.
+        /// Selects a program on the KDU and waits 300ms to ensure the KDU program is loaded. Note: if the KDU is in sequence mode, this command will also set the KDU to program mode
         /// </summary>
         /// <param name="kduProgramNumber">The program number to select. 1 to 64 or 1 to 200 depending on the KDU model and firmware version.</param>
         /// <exception cref="ModbusException">If KDU received the command but was unable to process it, for example if the KDU configuration menu is open on the touch screen</exception>
         /// <exception cref="SocketException">If the KDU disconnected in the middle of processing the command</exception>
+        /// <exception cref="InvalidOperationException">For KDU v37 only, if REMOTE PROG setting is not set to CN5 TCP</exception>
         public async Task SelectProgramNumberAsync(ushort kduProgramNumber)
         {
+            await SetToProgramModeAsync().ConfigureAwait(false);
             KduUserCmdTaskAsync userCmdTask = new KduUserCmdTaskAsync(UserCmd.SetProgram, asyncCommsCts.Token, kduProgramNumber);
             await EnqueueAndWaitForUserCmdToBeProcessedInAsyncCommsLoopAsync(userCmdTask).ConfigureAwait(false);
         }
@@ -358,13 +365,15 @@ namespace Kolver
         }
 
         /// <summary>
-        /// Selects a sequence on the KDU and waits 300ms to ensure the KDU sequence is loaded.
+        /// Selects a sequence on the KDU and waits 300ms to ensure the KDU sequence is loaded. Note: if the KDU is in program mode, this command will also set the KDU to sequence mode
         /// </summary>
         /// <param name="kduSequenceNumber">The sequence number to select. 1 to 8 or 1 to 24 depending on the KDU model and firmware version.</param>
         /// <exception cref="ModbusException">If KDU received the command but was unable to process it, for example if the KDU configuration menu is open on the touch screen</exception>
         /// <exception cref="SocketException">If the KDU disconnected in the middle of processing the command</exception>
+        /// <exception cref="InvalidOperationException">For KDU v37 only, if REMOTE SEQ setting is not set to CN5 TCP</exception>
         public async Task SelectSequenceNumberAsync(ushort kduSequenceNumber)
         {
+            await SetToSequenceModeAsync().ConfigureAwait(false);
             KduUserCmdTaskAsync userCmdTask = new KduUserCmdTaskAsync(UserCmd.SetSequence, asyncCommsCts.Token, kduSequenceNumber);
             await EnqueueAndWaitForUserCmdToBeProcessedInAsyncCommsLoopAsync(userCmdTask).ConfigureAwait(false);
         }
@@ -408,6 +417,8 @@ namespace Kolver
         /// </summary>
         /// <param name="cancellationToken"></param>
         /// <returns>The KducerTighteningResult object from which you can obtain data about the tightening result</returns>
+        /// <exception cref="ModbusException">If KDU received the command but was unable to process it, for example if the KDU configuration menu is open on the touch screen</exception>
+        /// <exception cref="SocketException">If the KDU disconnected in the middle of processing the command</exception>
         public async Task<KducerTighteningResult> RunScrewdriverUntilResultAsync(CancellationToken cancellationToken)
         {
             CancellationTokenSource cancelRunScrewdriver = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, asyncCommsCts.Token);
@@ -436,6 +447,7 @@ namespace Kolver
         /// <returns>the program data</returns>
         /// <param name="programNumber">program number for which to get data</param>
         /// <exception cref="SocketException">If the KDU disconnected in the middle of processing the command</exception>
+        /// <exception cref="ModbusException">If KDU received the command but was unable to process it, for example if the KDU configuration menu is open on the touch screen</exception>
         public async Task<KducerTighteningProgram> GetTighteningProgramDataAsync(ushort programNumber)
         {
             KduUserCmdTaskAsync userCmdTask = new KduUserCmdTaskAsync(UserCmd.GetTighteningProgramData, asyncCommsCts.Token, programNumber);
@@ -448,10 +460,10 @@ namespace Kolver
         /// </summary>
         /// <returns>the dictionary of (program number, program data) pairs</returns>
         /// <exception cref="SocketException">If the KDU disconnected in the middle of processing the command</exception>
+        /// <exception cref="ModbusException">If KDU received the command but was unable to process it, for example if the KDU configuration menu is open on the touch screen</exception>
         public async Task<Dictionary<ushort, KducerTighteningProgram>> GetAllTighteningProgramDataAsync()
         {
-            while (kduSoftwareVersion == 0)
-                await Task.Delay(POLL_INTERVAL_MS * 2, asyncCommsCts.Token).ConfigureAwait(false);
+            await WaitForKduMainboardVersion().ConfigureAwait(false);
 
             KduUserCmdTaskAsync userCmdTask = new KduUserCmdTaskAsync(UserCmd.GetAllTighteningProgramsData, asyncCommsCts.Token, kduSoftwareVersion);
             await EnqueueAndWaitForUserCmdToBeProcessedInAsyncCommsLoopWithResultAsync(userCmdTask).ConfigureAwait(false);
@@ -460,16 +472,29 @@ namespace Kolver
 
         /// <summary></summary>
         /// <returns>the numeric version of the mainboard of the KDU</returns>
-        public async Task<ushort> GetKduMainboardVersion()
+        /// <exception cref="SocketException">If the KDU is not connected (15 seconds timeout)</exception>
+        public async Task<ushort> GetKduMainboardVersionAsync()
         {
+            int cnt = 0;
             while (kduSoftwareVersion == 0) // version is obtained in the main async comms loop
+            {
+                cnt += (POLL_INTERVAL_MS * 2);
+                if (cnt > 15000)
+                {
+                    throw new SocketException(10057); // not connected
+                }
                 await Task.Delay(POLL_INTERVAL_MS * 2, asyncCommsCts.Token).ConfigureAwait(false);
-
+            }
             return kduSoftwareVersion;
         }
 
+        private async Task WaitForKduMainboardVersion()
+        {
+            await GetKduMainboardVersionAsync().ConfigureAwait(false);
+        }
+
         /// <summary>
-        /// Sends a new tightening program to the program number selected.
+        /// Sends a new tightening program to the program number selected. Note: the new program number is NOT automatically selected!
         /// Note: there is no parameter data validation in KducerTighteningProgram, however the controller may refuse the data with a ModbusException if illegal values are sent.
         /// For controllers v38 and later, by default the data is saved in volatile memory only, the previous data is restored on reboot and when entering the configuration menu on the controller.
         /// Saving in permanent memory is much slower and should only be used if really needed. The memory can wear out after several million writing cycles.
@@ -482,8 +507,7 @@ namespace Kolver
         /// <exception cref="ArgumentException">If the program number is 0, or >64 for controller v37, or >200 for controller >v38.</exception>
         public async Task SendNewProgramDataAsync(ushort programNumberToSet, KducerTighteningProgram newTighteningProgram, bool writeInPermanentMemory = false)
         {
-            while (kduSoftwareVersion == 0)
-                await Task.Delay(POLL_INTERVAL_MS * 2, asyncCommsCts.Token).ConfigureAwait(false);
+            await WaitForKduMainboardVersion().ConfigureAwait(false);
 
             KduUserCmdTaskAsync userCmdTask;
             if (kduSoftwareVersion < 38)
@@ -521,8 +545,7 @@ namespace Kolver
             if (dictionaryProgramNrKeyProgramDataValue == null)
                 throw new ArgumentNullException(nameof(dictionaryProgramNrKeyProgramDataValue));
 
-            while (kduSoftwareVersion == 0)
-                await Task.Delay(POLL_INTERVAL_MS * 2, asyncCommsCts.Token).ConfigureAwait(false);
+            await WaitForKduMainboardVersion().ConfigureAwait(false);
 
             KduUserCmdTaskAsync userCmdTask;
             if (kduSoftwareVersion < 38)
@@ -585,8 +608,7 @@ namespace Kolver
         /// <exception cref="ArgumentException">If the sequence number is 0, or >8 for controller v37, or >24 for controller >v38.</exception>
         public async Task SendNewSequenceDataAsync(ushort sequenceNumberToSet, KducerSequenceOfTighteningPrograms newSequence, bool writeInPermanentMemory = false)
         {
-            while (kduSoftwareVersion == 0)
-                await Task.Delay(POLL_INTERVAL_MS * 2, asyncCommsCts.Token).ConfigureAwait(false);
+            await WaitForKduMainboardVersion().ConfigureAwait(false);
 
             KduUserCmdTaskAsync userCmdTask;
             if (kduSoftwareVersion < 38)
@@ -625,8 +647,7 @@ namespace Kolver
             if (dictionarySequenceNrKeySequenceDataValue == null)
                 throw new ArgumentNullException(nameof(dictionarySequenceNrKeySequenceDataValue));
 
-            while (kduSoftwareVersion == 0)
-                await Task.Delay(POLL_INTERVAL_MS * 2, asyncCommsCts.Token).ConfigureAwait(false);
+            await WaitForKduMainboardVersion().ConfigureAwait(false);
 
             KduUserCmdTaskAsync userCmdTask;
             if (kduSoftwareVersion < 38)
@@ -658,8 +679,7 @@ namespace Kolver
         /// <exception cref="SocketException">If the KDU disconnected in the middle of processing the command</exception>
         public async Task<KducerSequenceOfTighteningPrograms> GetSequenceDataAsync(ushort sequenceNumber)
         {
-            while (kduSoftwareVersion == 0)
-                await Task.Delay(POLL_INTERVAL_MS * 2, asyncCommsCts.Token).ConfigureAwait(false);
+            await WaitForKduMainboardVersion().ConfigureAwait(false);
 
             KduUserCmdTaskAsync userCmdTask = new KduUserCmdTaskAsync(UserCmd.GetSequenceData, asyncCommsCts.Token, sequenceNumber);
             userCmdTask.kduVersion = kduSoftwareVersion;
@@ -674,8 +694,7 @@ namespace Kolver
         /// <exception cref="SocketException">If the KDU disconnected in the middle of processing the command</exception>
         public async Task<KducerSequenceOfTighteningPrograms> GetActiveSequenceDataAsync()
         {
-            while (kduSoftwareVersion == 0)
-                await Task.Delay(POLL_INTERVAL_MS * 2, asyncCommsCts.Token).ConfigureAwait(false);
+            await WaitForKduMainboardVersion().ConfigureAwait(false);
 
             KduUserCmdTaskAsync userCmdTask = new KduUserCmdTaskAsync(UserCmd.GetActiveSequenceData, asyncCommsCts.Token);
             userCmdTask.kduVersion = kduSoftwareVersion;
@@ -688,10 +707,10 @@ namespace Kolver
         /// </summary>
         /// <returns>the dictionary of (sequence number, sequence data) pairs</returns>
         /// <exception cref="SocketException">If the KDU disconnected in the middle of processing the command</exception>
+        /// <exception cref="ModbusException">If KDU received the command but was unable to process it, for example if the KDU configuration menu is open on the touch screen</exception>
         public async Task<Dictionary<ushort, KducerSequenceOfTighteningPrograms>> GetAllSequencesDataAsync()
         {
-            while (kduSoftwareVersion == 0)
-                await Task.Delay(POLL_INTERVAL_MS * 2, asyncCommsCts.Token).ConfigureAwait(false);
+            await WaitForKduMainboardVersion().ConfigureAwait(false);
 
             KduUserCmdTaskAsync userCmdTask = new KduUserCmdTaskAsync(UserCmd.GetAllSequencesData, asyncCommsCts.Token, kduSoftwareVersion);
             userCmdTask.kduVersion = kduSoftwareVersion;
@@ -699,17 +718,119 @@ namespace Kolver
             return userCmdTask.multipleSequences;
         }
 
+        /// <summary>
+        /// Reads the general settings data of the KDU controller
+        /// </summary>
+        /// <returns>KducerControllerGeneralSettings object representing the general settings data</returns>
+        /// <exception cref="SocketException">If the KDU disconnected in the middle of processing the command</exception>
+        public async Task<KducerControllerGeneralSettings> GetGeneralSettingsDataAsync()
+        {
+            await WaitForKduMainboardVersion().ConfigureAwait(false);
+
+            KduUserCmdTaskAsync userCmdTask = new KduUserCmdTaskAsync(UserCmd.GetGeneralSettingsData, asyncCommsCts.Token);
+            userCmdTask.kduVersion = kduSoftwareVersion;
+            await EnqueueAndWaitForUserCmdToBeProcessedInAsyncCommsLoopWithResultAsync(userCmdTask).ConfigureAwait(false);
+            return userCmdTask.generalSettings;
+        }
+
+        /// <summary>
+        /// Writes the general settings data of the KDU controller
+        /// </summary>
+        /// <param name="writeInPermanentMemory">default false. use true only where necessary. not applicable for controllers v37 and earlier (ask kolver for a free update)</param>
+        /// <param name="newGeneralSettingsData">The new data to write</param>
+        /// <exception cref="ModbusException">If KDU received the command but was unable to process it, for example if the KDU configuration menu is open on the touch screen</exception>
+        /// <exception cref="SocketException">If the KDU disconnected in the middle of processing the command</exception>
+        /// <exception cref="ArgumentNullException"></exception>
+        public async Task SendGeneralSettingsDataAsync(KducerControllerGeneralSettings newGeneralSettingsData, bool writeInPermanentMemory = false)
+        {
+            if (newGeneralSettingsData == null)
+                throw new ArgumentNullException(nameof(newGeneralSettingsData));
+
+            await WaitForKduMainboardVersion().ConfigureAwait(false);
+
+            KduUserCmdTaskAsync userCmdTask = new KduUserCmdTaskAsync(UserCmd.SendGeneralSettingsData, asyncCommsCts.Token);
+            userCmdTask.kduVersion = kduSoftwareVersion;
+            userCmdTask.writeHoldingRegistersInPermanentMemory = writeInPermanentMemory;
+            userCmdTask.generalSettings = newGeneralSettingsData;
+            await EnqueueAndWaitForUserCmdToBeProcessedInAsyncCommsLoopWithResultAsync(userCmdTask).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Reads all settings, programs, and sequences from a KDU controller
+        /// </summary>
+        /// <returns>KducerControllerGeneralSettings object representing the general settings data</returns>
+        /// <exception cref="SocketException">If the KDU disconnected in the middle of processing the command</exception>
+        public async Task<Tuple<KducerControllerGeneralSettings, Dictionary<ushort, KducerTighteningProgram>, Dictionary<ushort, KducerSequenceOfTighteningPrograms>>> GetSettingsAndProgramsAndSequencesDataAsync()
+        {
+            await WaitForKduMainboardVersion().ConfigureAwait(false);
+
+            KduUserCmdTaskAsync userCmdTask = new KduUserCmdTaskAsync(UserCmd.GetSettingsAndProgramsAndSequencesData, asyncCommsCts.Token);
+            userCmdTask.kduVersion = kduSoftwareVersion;
+            await EnqueueAndWaitForUserCmdToBeProcessedInAsyncCommsLoopWithResultAsync(userCmdTask).ConfigureAwait(false);
+            return userCmdTask.settingsAndProgramsAndSequencesTuple;
+        }
+
+        /// <summary>
+        /// Writes the general settings, programs, and sequences data. IP address and protocol data is not written. This method is faster than sending the settings, programs, and sequences separately.
+        /// </summary>
+        /// <param name="writeInPermanentMemory">default false. use true only where necessary. not applicable for controllers v37 and earlier (ask kolver for a free update)</param>
+        /// <param name="kduFileDataTuple">The new data to write (general settings, programs, sequences), coming from the KducerKduDataFileReader class</param>
+        /// <exception cref="ModbusException">If KDU received the command but was unable to process it, for example if the KDU configuration menu is open on the touch screen</exception>
+        /// <exception cref="SocketException">If the KDU disconnected in the middle of processing the command</exception>
+        /// <exception cref="ArgumentNullException"></exception>
+        public async Task SendAllSettingsProgramsAndSequencesDataAsync(Tuple<KducerControllerGeneralSettings, Dictionary<ushort, KducerTighteningProgram>, Dictionary<ushort, KducerSequenceOfTighteningPrograms>> kduFileDataTuple, bool writeInPermanentMemory = false)
+        {
+            if (kduFileDataTuple == null || kduFileDataTuple.Item1 == null || kduFileDataTuple.Item2 == null || kduFileDataTuple.Item3 == null)
+                throw new ArgumentNullException(nameof(kduFileDataTuple));
+
+            await WaitForKduMainboardVersion().ConfigureAwait(false);
+
+            KduUserCmdTaskAsync userCmdTask = new KduUserCmdTaskAsync(UserCmd.SendSettingsAndProgramsAndSequencesData, asyncCommsCts.Token);
+            userCmdTask.kduVersion = kduSoftwareVersion;
+            userCmdTask.writeHoldingRegistersInPermanentMemory = writeInPermanentMemory;
+            userCmdTask.settingsAndProgramsAndSequencesTuple = kduFileDataTuple;
+            await EnqueueAndWaitForUserCmdToBeProcessedInAsyncCommsLoopWithResultAsync(userCmdTask).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Sets the KDU to program mode (opposite of SetToSequenceModeAsync)
+        /// </summary>
+        /// <exception cref="ModbusException">If KDU received the command but was unable to process it, for example if the KDU configuration menu is open on the touch screen</exception>
+        /// <exception cref="SocketException">If the KDU disconnected in the middle of processing the command</exception>
+        public async Task SetToProgramModeAsync()
+        {
+            await WaitForKduMainboardVersion().ConfigureAwait(false);
+            KduUserCmdTaskAsync userCmdTask = new KduUserCmdTaskAsync(UserCmd.SetSequenceOrProgramMode, asyncCommsCts.Token, 0);
+            userCmdTask.kduVersion = kduSoftwareVersion;
+            await EnqueueAndWaitForUserCmdToBeProcessedInAsyncCommsLoopAsync(userCmdTask).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Sets the KDU to sequence mode (opposite of SetToProgramModeAsync)
+        /// </summary>
+        /// <exception cref="ModbusException">If KDU received the command but was unable to process it, for example if the KDU configuration menu is open on the touch screen</exception>
+        /// <exception cref="SocketException">If the KDU disconnected in the middle of processing the command</exception>
+        public async Task SetToSequenceModeAsync()
+        {
+            await WaitForKduMainboardVersion().ConfigureAwait(false);
+            KduUserCmdTaskAsync userCmdTask = new KduUserCmdTaskAsync(UserCmd.SetSequenceOrProgramMode, asyncCommsCts.Token, 1);
+            userCmdTask.kduVersion = kduSoftwareVersion;
+            await EnqueueAndWaitForUserCmdToBeProcessedInAsyncCommsLoopAsync(userCmdTask).ConfigureAwait(false);
+        }
+
         private async Task EnqueueAndWaitForUserCmdToBeProcessedInAsyncCommsLoopAsync(KduUserCmdTaskAsync userCmdTask)
         {
             userCmdTaskQueue.Enqueue(userCmdTask);
             while (!userCmdTask.completed)
-                await Task.Delay(POLL_INTERVAL_MS, asyncCommsCts.Token).ConfigureAwait(false);
-            if (userCmdTask.exceptionThrownInAsyncTask != null)
             {
-                if (userCmdTask.exceptionThrownInAsyncTask is ModbusException ex && ex.GetModbusExceptionCode() == 6)
-                    throw new ModbusException("KDU replied with a Modbus busy exception so the desired command was not processed.", 6);
-                else
-                    throw userCmdTask.exceptionThrownInAsyncTask;
+                await Task.Delay(POLL_INTERVAL_MS, asyncCommsCts.Token).ConfigureAwait(false);
+                if (userCmdTask.exceptionThrownInAsyncTask != null)
+                {
+                    if (userCmdTask.exceptionThrownInAsyncTask is ModbusException ex && ex.GetModbusExceptionCode() == 6)
+                        throw new ModbusException("KDU replied with a Modbus busy exception so the desired command was not processed.", 6);
+                    else
+                        throw userCmdTask.exceptionThrownInAsyncTask;
+                }
             }
         }
 
@@ -743,7 +864,12 @@ namespace Kolver
             SendSequenceDataV37,
             SendSequenceDataV38,
             SendMultipleSequencesDataV37,
-            SendMultipleSequencesDataV38
+            SendMultipleSequencesDataV38,
+            GetGeneralSettingsData,
+            SendGeneralSettingsData,
+            GetSettingsAndProgramsAndSequencesData,
+            SendSettingsAndProgramsAndSequencesData,
+            SetSequenceOrProgramMode
         }
 
         private class KduUserCmdTaskAsync
@@ -763,6 +889,8 @@ namespace Kolver
             internal KducerSequenceOfTighteningPrograms singleSequence;
             internal Dictionary<ushort, KducerSequenceOfTighteningPrograms> multipleSequences;
             internal string barcode;
+            internal KducerControllerGeneralSettings generalSettings;
+            internal Tuple<KducerControllerGeneralSettings, Dictionary<ushort, KducerTighteningProgram>, Dictionary<ushort, KducerSequenceOfTighteningPrograms>> settingsAndProgramsAndSequencesTuple;
 
             internal KduUserCmdTaskAsync(UserCmd cmd, CancellationToken cancellationToken, ushort payload = 0, bool replaceResultTimestampWithLocalTimestamp = true)
             {
@@ -868,6 +996,25 @@ namespace Kolver
                             multipleSequences = await KduAsyncOperationTasks.GetAllSequencesData(mbClient, kduVersion, cancellationToken).ConfigureAwait(false);
                             break;
 
+                        case UserCmd.GetGeneralSettingsData:
+                            generalSettings = await KduAsyncOperationTasks.GetGeneralSettings(mbClient, kduVersion).ConfigureAwait(false);
+                            break;
+
+                        case UserCmd.SendGeneralSettingsData:
+                            await KduAsyncOperationTasks.SendGeneralSettings(mbClient, generalSettings, kduVersion, writeHoldingRegistersInPermanentMemory, cancellationToken).ConfigureAwait(false);
+                            break;
+
+                        case UserCmd.GetSettingsAndProgramsAndSequencesData:
+                            settingsAndProgramsAndSequencesTuple = await KduAsyncOperationTasks.GetSettingsAndProgramsAndSequencesData(mbClient, kduVersion, cancellationToken).ConfigureAwait(false);
+                            break;
+
+                        case UserCmd.SendSettingsAndProgramsAndSequencesData:
+                            await KduAsyncOperationTasks.SendSettingsAndProgramsAndSequencesData(mbClient, settingsAndProgramsAndSequencesTuple, kduVersion, writeHoldingRegistersInPermanentMemory, cancellationToken).ConfigureAwait(false);
+                            break;
+
+                        case UserCmd.SetSequenceOrProgramMode:
+                            await KduAsyncOperationTasks.SetSequenceOrProgramMode(mbClient, payload, kduVersion, cancellationToken).ConfigureAwait(false);
+                            break;
                     }
                 }
                 catch (SocketException tcpError)
@@ -877,6 +1024,11 @@ namespace Kolver
                 catch (ModbusException modbusError)
                 {
                     exceptionThrownInAsyncTask = modbusError;
+                }
+                catch (Exception e)
+                {
+                    exceptionThrownInAsyncTask = e;
+                    throw;
                 }
 
                 completed = true;
@@ -923,6 +1075,8 @@ namespace Kolver
                     return;
                 await mbClient.WriteSingleRegisterAsync(Kducer.HR_PROGRAM_NR, prNr).ConfigureAwait(false);
                 await Task.Delay(PR_SEQ_CHANGE_WAIT, cancellationToken).ConfigureAwait(false);
+                if ((await mbClient.ReadHoldingRegistersAsync(Kducer.HR_PROGRAM_NR, 1).ConfigureAwait(false))[1] != prNr)
+                    throw new InvalidOperationException("Program selection failed. Is the KDU \"REMOTE PROG\" setting set to \"CN5 TCP\"?");    // this only happens in KDU v37 and prior (without a corresponding modbus exception)
             }
 
             internal static async Task<ushort> GetActiveSequenceNumber(ReducedModbusTcpClientAsync mbClient)
@@ -937,6 +1091,27 @@ namespace Kolver
                     return;
                 await mbClient.WriteSingleRegisterAsync(Kducer.HR_SEQUENCE_NR, seqNr).ConfigureAwait(false);
                 await Task.Delay(PR_SEQ_CHANGE_WAIT, cancellationToken).ConfigureAwait(false);
+                if ((await mbClient.ReadHoldingRegistersAsync(Kducer.HR_SEQUENCE_NR, 1).ConfigureAwait(false))[1] != seqNr)
+                    throw new InvalidOperationException("Sequence selection failed. Is the KDU \"REMOTE SEQ\" setting set to \"CN5 TCP\"?");    // this only happens in KDU v37 and prior (without a corresponding modbus exception)
+            }
+
+            internal static async Task SetSequenceOrProgramMode(ReducedModbusTcpClientAsync mbClient, ushort mode, ushort kduVersion, CancellationToken cancellationToken)
+            {
+                if ((await mbClient.ReadHoldingRegistersAsync(Kducer.HR_SEQUENCE_PROGRAM_MODE, 1).ConfigureAwait(false))[1] == mode)
+                    return;
+
+                if (kduVersion < 38)
+                {
+                    await mbClient.WriteSingleRegisterAsync(Kducer.HR_PERMANENT_MEMORY_REPROGRAM, 1).ConfigureAwait(false);
+                }
+                await mbClient.WriteSingleRegisterAsync(Kducer.HR_SEQUENCE_PROGRAM_MODE, mode).ConfigureAwait(false);
+                if (kduVersion < 38)
+                {
+                    await mbClient.WriteSingleRegisterAsync(Kducer.HR_PERMANENT_MEMORY_REPROGRAM, 2).ConfigureAwait(false);
+                    await Task.Delay(PERMANENT_MEMORY_REWRITE_WAIT, cancellationToken).ConfigureAwait(false);
+                }
+                else
+                    await Task.Delay(PR_SEQ_CHANGE_WAIT, cancellationToken).ConfigureAwait(false);
             }
 
             internal static async Task SetStopMotorState(ReducedModbusTcpClientAsync mbClient, bool stopMotorState, CancellationToken cancellationToken)
@@ -986,16 +1161,21 @@ namespace Kolver
                 if (writeToPermanentMemory)
                     await mbClient.WriteSingleRegisterAsync(Kducer.HR_PERMANENT_MEMORY_REPROGRAM, 1).ConfigureAwait(false);
 
+                ushort activeProgram = await KduAsyncOperationTasks.GetActiveProgramNumber(mbClient).ConfigureAwait(false);
+
                 await mbClient.WriteSingleRegisterAsync(Kducer.HR_PROGRAM_NR, programNumber).ConfigureAwait(false);
                 await mbClient.WriteMultipleRegistersAsync(Kducer.HR_PROGRAM_DATA_65_TO_200, tighteningProgram.getProgramModbusHoldingRegistersAsByteArray()).ConfigureAwait(false);
+
+                if (activeProgram != programNumber)
+                    await mbClient.WriteSingleRegisterAsync(Kducer.HR_PROGRAM_NR, activeProgram).ConfigureAwait(false);
 
                 if (writeToPermanentMemory)
                 {
                     await mbClient.WriteSingleRegisterAsync(Kducer.HR_PERMANENT_MEMORY_REPROGRAM, 2).ConfigureAwait(false);
                     await Task.Delay(PERMANENT_MEMORY_REWRITE_WAIT, cancellationToken).ConfigureAwait(false);
                 }
-
-                await Task.Delay(PR_SEQ_CHANGE_WAIT, cancellationToken).ConfigureAwait(false);
+                else
+                    await Task.Delay(PR_SEQ_CHANGE_WAIT, cancellationToken).ConfigureAwait(false);
             }
 
             internal static async Task SendTighteningProgramV37(ReducedModbusTcpClientAsync mbClient, ushort programNumber, KducerTighteningProgram tighteningProgram, CancellationToken cancellationToken)
@@ -1015,6 +1195,11 @@ namespace Kolver
                 {
                     await mbClient.WriteSingleRegisterAsync(Kducer.HR_PROGRAM_NR, kvp.Key).ConfigureAwait(false);
                     await mbClient.WriteMultipleRegistersAsync(Kducer.HR_PROGRAM_DATA_65_TO_200, kvp.Value.getProgramModbusHoldingRegistersAsByteArray()).ConfigureAwait(false);
+                    if (cancellationToken.IsCancellationRequested)
+                    {
+                        if (writeToPermanentMemory) await mbClient.WriteSingleRegisterAsync(Kducer.HR_PERMANENT_MEMORY_REPROGRAM, 0).ConfigureAwait(false);
+                        cancellationToken.ThrowIfCancellationRequested();
+                    }
                 }
 
                 if (writeToPermanentMemory)
@@ -1022,8 +1207,8 @@ namespace Kolver
                     await mbClient.WriteSingleRegisterAsync(Kducer.HR_PERMANENT_MEMORY_REPROGRAM, 2).ConfigureAwait(false);
                     await Task.Delay(PERMANENT_MEMORY_REWRITE_WAIT, cancellationToken).ConfigureAwait(false);
                 }
-
-                await Task.Delay(PR_SEQ_CHANGE_WAIT, cancellationToken).ConfigureAwait(false);
+                else
+                    await Task.Delay(PR_SEQ_CHANGE_WAIT, cancellationToken).ConfigureAwait(false);
             }
 
             internal static async Task SendMultipleTighteningProgramsV37(ReducedModbusTcpClientAsync mbClient, Dictionary<ushort, KducerTighteningProgram> multipleTighteningPrograms, CancellationToken cancellationToken)
@@ -1120,16 +1305,21 @@ namespace Kolver
                 if (writeToPermanentMemory)
                     await mbClient.WriteSingleRegisterAsync(Kducer.HR_PERMANENT_MEMORY_REPROGRAM, 1).ConfigureAwait(false);
 
+                ushort activeSequence = await KduAsyncOperationTasks.GetActiveSequenceNumber(mbClient).ConfigureAwait(false);
+
                 await mbClient.WriteSingleRegisterAsync(Kducer.HR_SEQUENCE_NR, sequenceNumber).ConfigureAwait(false);
                 await mbClient.WriteMultipleRegistersAsync(Kducer.HR_SEQUENCE_DATA_9_TO_24, sequenceOfPrograms.getSequenceModbusHoldingRegistersAsByteArray_KDUv38andLater()).ConfigureAwait(false);
+
+                if (activeSequence != sequenceNumber)
+                    await mbClient.WriteSingleRegisterAsync(Kducer.HR_SEQUENCE_NR, activeSequence).ConfigureAwait(false);
 
                 if (writeToPermanentMemory)
                 {
                     await mbClient.WriteSingleRegisterAsync(Kducer.HR_PERMANENT_MEMORY_REPROGRAM, 2).ConfigureAwait(false);
                     await Task.Delay(PERMANENT_MEMORY_REWRITE_WAIT, cancellationToken).ConfigureAwait(false);
                 }
-
-                await Task.Delay(PR_SEQ_CHANGE_WAIT, cancellationToken).ConfigureAwait(false);
+                else
+                    await Task.Delay(PR_SEQ_CHANGE_WAIT, cancellationToken).ConfigureAwait(false);
             }
 
             internal static async Task SendSequenceOfTighteningProgramsV37(ReducedModbusTcpClientAsync mbClient, ushort sequenceNumber, KducerSequenceOfTighteningPrograms sequenceOfPrograms, CancellationToken cancellationToken)
@@ -1145,19 +1335,28 @@ namespace Kolver
                 if (writeToPermanentMemory)
                     await mbClient.WriteSingleRegisterAsync(Kducer.HR_PERMANENT_MEMORY_REPROGRAM, 1).ConfigureAwait(false);
 
+                ushort activeSequence = await KduAsyncOperationTasks.GetActiveSequenceNumber(mbClient).ConfigureAwait(false);
+
                 foreach (KeyValuePair<ushort, KducerSequenceOfTighteningPrograms> kvp in multipleSequences)
                 {
                     await mbClient.WriteSingleRegisterAsync(Kducer.HR_SEQUENCE_NR, kvp.Key).ConfigureAwait(false);
                     await mbClient.WriteMultipleRegistersAsync(Kducer.HR_SEQUENCE_DATA_9_TO_24, kvp.Value.getSequenceModbusHoldingRegistersAsByteArray_KDUv38andLater()).ConfigureAwait(false);
+                    if (cancellationToken.IsCancellationRequested)
+                    {
+                        if (writeToPermanentMemory) await mbClient.WriteSingleRegisterAsync(Kducer.HR_PERMANENT_MEMORY_REPROGRAM, 0).ConfigureAwait(false);
+                        cancellationToken.ThrowIfCancellationRequested();
+                    }
                 }
+
+                await mbClient.WriteSingleRegisterAsync(Kducer.HR_SEQUENCE_NR, activeSequence).ConfigureAwait(false);
 
                 if (writeToPermanentMemory)
                 {
                     await mbClient.WriteSingleRegisterAsync(Kducer.HR_PERMANENT_MEMORY_REPROGRAM, 2).ConfigureAwait(false);
                     await Task.Delay(PERMANENT_MEMORY_REWRITE_WAIT, cancellationToken).ConfigureAwait(false);
                 }
-
-                await Task.Delay(PR_SEQ_CHANGE_WAIT, cancellationToken).ConfigureAwait(false);
+                else
+                    await Task.Delay(PR_SEQ_CHANGE_WAIT, cancellationToken).ConfigureAwait(false);
             }
 
             internal static async Task SendMultipleSequencesV37(ReducedModbusTcpClientAsync mbClient, Dictionary<ushort, KducerSequenceOfTighteningPrograms> multipleSequences, CancellationToken cancellationToken)
@@ -1205,6 +1404,126 @@ namespace Kolver
 
                 return allSequences;
             }
+
+            internal static async Task<KducerControllerGeneralSettings> GetGeneralSettings(ReducedModbusTcpClientAsync mbClient, ushort kduVersion)
+            {
+                if (kduVersion <= 37)
+                    return new KducerControllerGeneralSettings(await mbClient.ReadHoldingRegistersAsync(Kducer.HR_GENERALSETTINGS_V37, 39).ConfigureAwait(false));
+                else if (kduVersion == 38)
+                    return new KducerControllerGeneralSettings(await mbClient.ReadHoldingRegistersAsync(Kducer.HR_GENERALSETTINGS, 43).ConfigureAwait(false));
+                else
+                    return new KducerControllerGeneralSettings(await mbClient.ReadHoldingRegistersAsync(Kducer.HR_GENERALSETTINGS, 44).ConfigureAwait(false));
+            }
+
+            internal static async Task SendGeneralSettings(ReducedModbusTcpClientAsync mbClient, KducerControllerGeneralSettings kduGeneralSettings, ushort kduVersion, bool writeToPermanentMemory, CancellationToken cancellationToken)
+            {
+                if (kduVersion <= 37 || writeToPermanentMemory)
+                {
+                    await mbClient.WriteSingleRegisterAsync(Kducer.HR_PERMANENT_MEMORY_REPROGRAM, 1).ConfigureAwait(false);
+                }
+
+                if (kduVersion <= 37)
+                    await mbClient.WriteMultipleRegistersAsync(Kducer.HR_GENERALSETTINGS_V37, kduGeneralSettings.getGeneralSettingsModbusHoldingRegistersAsByteArray_KDUv37andPrior()).ConfigureAwait(false);
+                else if (kduVersion == 38)
+                    await mbClient.WriteMultipleRegistersAsync(Kducer.HR_GENERALSETTINGS, kduGeneralSettings.getGeneralSettingsModbusHoldingRegistersAsByteArray_KDUv38()).ConfigureAwait(false);
+                else
+                    await mbClient.WriteMultipleRegistersAsync(Kducer.HR_GENERALSETTINGS, kduGeneralSettings.getGeneralSettingsModbusHoldingRegistersAsByteArray()).ConfigureAwait(false);
+
+                if (kduVersion <= 37 || writeToPermanentMemory)
+                {
+                    await mbClient.WriteSingleRegisterAsync(Kducer.HR_PERMANENT_MEMORY_REPROGRAM, 2).ConfigureAwait(false);
+                    await Task.Delay(PERMANENT_MEMORY_REWRITE_WAIT, cancellationToken).ConfigureAwait(false);
+                }
+                else
+                {
+                    await Task.Delay(PR_SEQ_CHANGE_WAIT, cancellationToken).ConfigureAwait(false);
+                }
+            }
+
+            internal static async Task<Tuple<KducerControllerGeneralSettings, Dictionary<ushort, KducerTighteningProgram>, Dictionary<ushort, KducerSequenceOfTighteningPrograms>>> GetSettingsAndProgramsAndSequencesData(ReducedModbusTcpClientAsync mbClient, ushort kduVersion, CancellationToken cancellationToken)
+            {
+                Dictionary<ushort, KducerTighteningProgram> programs = await GetAllProgramsData(mbClient, kduVersion, cancellationToken).ConfigureAwait(false);
+                Dictionary<ushort, KducerSequenceOfTighteningPrograms> sequences = await GetAllSequencesData(mbClient, kduVersion, cancellationToken).ConfigureAwait(false);
+                KducerControllerGeneralSettings settings = await GetGeneralSettings(mbClient, kduVersion).ConfigureAwait(false);
+                await Task.Delay(PR_SEQ_CHANGE_WAIT, cancellationToken).ConfigureAwait(false);
+                return new Tuple<KducerControllerGeneralSettings, Dictionary<ushort, KducerTighteningProgram>, Dictionary<ushort, KducerSequenceOfTighteningPrograms>>(settings, programs, sequences);
+            }
+
+            internal static async Task SendSettingsAndProgramsAndSequencesData(ReducedModbusTcpClientAsync mbClient, Tuple<KducerControllerGeneralSettings, Dictionary<ushort, KducerTighteningProgram>, Dictionary<ushort, KducerSequenceOfTighteningPrograms>> settingsProgramsSequences, ushort kduVersion, bool writeToPermanentMemory, CancellationToken cancellationToken)
+            {
+                if (kduVersion <= 37 || writeToPermanentMemory)
+                {
+                    await mbClient.WriteSingleRegisterAsync(Kducer.HR_PERMANENT_MEMORY_REPROGRAM, 1).ConfigureAwait(false);
+                }
+
+                if (kduVersion <= 37)
+                {
+                    foreach (KeyValuePair<ushort, KducerTighteningProgram> kvp in settingsProgramsSequences.Item2)
+                    {
+                        await mbClient.WriteMultipleRegistersAsync((ushort)(Kducer.HR_PROGRAM_DATA_1_TO_64 + 115 * (kvp.Key - 1)), kvp.Value.getProgramModbusHoldingRegistersAsByteArray()).ConfigureAwait(false);
+                        if (cancellationToken.IsCancellationRequested)
+                        {
+                            await mbClient.WriteSingleRegisterAsync(Kducer.HR_PERMANENT_MEMORY_REPROGRAM, 0).ConfigureAwait(false);
+                            cancellationToken.ThrowIfCancellationRequested();
+                        }
+                    }
+
+                    foreach (KeyValuePair<ushort, KducerSequenceOfTighteningPrograms> kvp in settingsProgramsSequences.Item3)
+                    {
+                        await mbClient.WriteMultipleRegistersAsync((ushort)(Kducer.HR_SEQUENCE_DATA_1_TO_8 + 48 * (kvp.Key - 1)), kvp.Value.getSequenceModbusHoldingRegistersAsByteArray_KDUv37andPrior()).ConfigureAwait(false);
+                        if (cancellationToken.IsCancellationRequested)
+                        {
+                            await mbClient.WriteSingleRegisterAsync(Kducer.HR_PERMANENT_MEMORY_REPROGRAM, 0).ConfigureAwait(false);
+                            cancellationToken.ThrowIfCancellationRequested();
+                        }
+                    }
+
+                    await mbClient.WriteMultipleRegistersAsync(Kducer.HR_GENERALSETTINGS_V37, settingsProgramsSequences.Item1.getGeneralSettingsModbusHoldingRegistersAsByteArray_KDUv37andPrior()).ConfigureAwait(false);
+                }
+                else
+                {
+                    ushort activeProgram = await KduAsyncOperationTasks.GetActiveProgramNumber(mbClient).ConfigureAwait(false);
+                    foreach (KeyValuePair<ushort, KducerTighteningProgram> kvp in settingsProgramsSequences.Item2)
+                    {
+                        await mbClient.WriteSingleRegisterAsync(Kducer.HR_PROGRAM_NR, kvp.Key).ConfigureAwait(false);
+                        await mbClient.WriteMultipleRegistersAsync(Kducer.HR_PROGRAM_DATA_65_TO_200, kvp.Value.getProgramModbusHoldingRegistersAsByteArray()).ConfigureAwait(false);
+                        if (cancellationToken.IsCancellationRequested)
+                        {
+                            if(writeToPermanentMemory) await mbClient.WriteSingleRegisterAsync(Kducer.HR_PERMANENT_MEMORY_REPROGRAM, 0).ConfigureAwait(false);
+                            cancellationToken.ThrowIfCancellationRequested();
+                        }
+                    }
+                    await mbClient.WriteSingleRegisterAsync(Kducer.HR_PROGRAM_NR, activeProgram).ConfigureAwait(false);
+
+                    ushort activeSequence = await KduAsyncOperationTasks.GetActiveSequenceNumber(mbClient).ConfigureAwait(false);
+                    foreach (KeyValuePair<ushort, KducerSequenceOfTighteningPrograms> kvp in settingsProgramsSequences.Item3)
+                    {
+                        await mbClient.WriteSingleRegisterAsync(Kducer.HR_SEQUENCE_NR, kvp.Key).ConfigureAwait(false);
+                        await mbClient.WriteMultipleRegistersAsync(Kducer.HR_SEQUENCE_DATA_9_TO_24, kvp.Value.getSequenceModbusHoldingRegistersAsByteArray_KDUv38andLater()).ConfigureAwait(false);
+                        if (cancellationToken.IsCancellationRequested)
+                        {
+                            if(writeToPermanentMemory) await mbClient.WriteSingleRegisterAsync(Kducer.HR_PERMANENT_MEMORY_REPROGRAM, 0).ConfigureAwait(false);
+                            cancellationToken.ThrowIfCancellationRequested();
+                        }
+                    }
+                    await mbClient.WriteSingleRegisterAsync(Kducer.HR_SEQUENCE_NR, activeSequence).ConfigureAwait(false);
+
+                    if (kduVersion == 38)
+                        await mbClient.WriteMultipleRegistersAsync(Kducer.HR_GENERALSETTINGS, settingsProgramsSequences.Item1.getGeneralSettingsModbusHoldingRegistersAsByteArray_KDUv38()).ConfigureAwait(false);
+                    else
+                        await mbClient.WriteMultipleRegistersAsync(Kducer.HR_GENERALSETTINGS, settingsProgramsSequences.Item1.getGeneralSettingsModbusHoldingRegistersAsByteArray()).ConfigureAwait(false);
+                }
+
+                if (kduVersion <= 37 || writeToPermanentMemory)
+                {
+                    await mbClient.WriteSingleRegisterAsync(Kducer.HR_PERMANENT_MEMORY_REPROGRAM, 2).ConfigureAwait(false);
+                    await Task.Delay(PERMANENT_MEMORY_REWRITE_WAIT, cancellationToken).ConfigureAwait(false);
+                }
+                else
+                {
+                    await Task.Delay(PR_SEQ_CHANGE_WAIT, cancellationToken).ConfigureAwait(false);
+                }
+            }
         }
 
         /// <summary>
@@ -1216,5 +1535,6 @@ namespace Kolver
             asyncCommsCts.Dispose();
         }
     }
-
+#pragma warning restore CA1063 // the dispose implementation is correct
+#pragma warning restore CA1816 // the dispose implementation is correct
 }

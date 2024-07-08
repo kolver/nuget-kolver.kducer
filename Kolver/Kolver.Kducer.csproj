@@ -3,13 +3,13 @@
   <PropertyGroup>
     <TargetFramework>netstandard2.0</TargetFramework>
     <SignAssembly>False</SignAssembly>
-    <Version>0.2.0-rc</Version>
+    <Version>0.3.0</Version>
     <ProduceReferenceAssembly>True</ProduceReferenceAssembly>
     <GenerateDocumentationFile>True</GenerateDocumentationFile>
     <GeneratePackageOnBuild>True</GeneratePackageOnBuild>
     <Title>Easily monitor and control a Kolver K-Ducer over ethernet</Title>
     <Description>This library allows you to interface with a Kolver K-Ducer torque driving system without having to worry about the underlying Modbus TCP protocol.
-You can obtain tightening results, enable/disable the screwdriver, and run the screwdriver remotely (read the manual and always follow all safety precautions before running the screwdriver).
+You can obtain tightening results, enable/disable the screwdriver, run the screwdriver remotely (read the manual and always follow all safety precautions before running the screwdriver), and reprogram all controller parameters and settings.
 The library uses TAP (async/await) to implement the underlying cyclical Modbus TCP communications, and uses its own minimal Modbus TCP client.
 Brought to you by Kolver www.kolver.com</Description>
     <Copyright>Copyright (c) 2024 Kolver Srl www.kolver.com</Copyright>
@@ -19,13 +19,15 @@ Brought to you by Kolver www.kolver.com</Description>
     <RepositoryUrl>https://github.com/kolver/nuget-kolver.kducer.git</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <PackageTags>kolver kducer k-ducer modbus modbusTCP torque screwdriver openprotocol open-protocol atlascopco atlas copco asg xpaq mountz cleco estic powerfocus powermacs toolsnet open protocol desoutter</PackageTags>
-    <PackageReleaseNotes>release candidate</PackageReleaseNotes>
+    <PackageReleaseNotes></PackageReleaseNotes>
     <EnforceCodeStyleInBuild>True</EnforceCodeStyleInBuild>
     <EnableNETAnalyzers>True</EnableNETAnalyzers>
     <AnalysisLevel>6.0-all</AnalysisLevel>
     <Authors>kolver,edoardo-kolver</Authors>
     <Company>Kolver Srl</Company>
     <PackageLicenseFile>LICENSE.txt</PackageLicenseFile>
+    <IncludeSymbols>True</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">

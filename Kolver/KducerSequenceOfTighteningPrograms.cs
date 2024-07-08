@@ -137,9 +137,15 @@ namespace Kolver
             int numberOfItems;
 
             if (sequenceModbusHoldingRegistersAsByteArray.Length == 112)    // v38/later format
+            {
+                kduVersion = 38;
                 numberOfItems = getMaxListLenForVersion(38);
+            }
             else if (sequenceModbusHoldingRegistersAsByteArray.Length == 64)    // v37/prior format
+            {
+                kduVersion = 37;
                 numberOfItems = getMaxListLenForVersion(37);
+            }
             else
                 throw new ArgumentException($"You are using the constructor for Modbus Holding Registers Bytes. Byte array length should be 64 or 112 bytes. Did you mean to use the constructor with an IList of programs?", nameof(sequenceModbusHoldingRegistersAsByteArray));
 
@@ -207,6 +213,7 @@ namespace Kolver
 
             programNumbers.CopyTo(registerBytes, 16);
             programLinkModes.CopyTo(registerBytes, 16 + 32);
+            Enumerable.Repeat<byte>(3, getMaxListLenForVersion(38)).ToArray().CopyTo(registerBytes, 16 + 32 + 32);
             programLinkTimes.CopyTo(registerBytes, 16 + 32 + 32);
 
             return registerBytes;
@@ -214,7 +221,8 @@ namespace Kolver
 
         internal byte[] getSequenceModbusHoldingRegistersAsByteArray_KDUv37andPrior()
         {
-            if (programNumbers.Count > 16)
+            int count = programNumbers.Count;
+            if (count > 16)
                 throw new InvalidOperationException("Requested sequence registers for KDU v37, but sequence has more than 16 programs");
 
             byte[] registerBytes = new byte[64];
@@ -222,9 +230,10 @@ namespace Kolver
             char[] barcode_chars = barcode.ToCharArray();
             Encoding.ASCII.GetBytes(barcode_chars, 0, barcode_chars.Length, registerBytes, 0);
 
-            programNumbers.GetRange(0,16).CopyTo(registerBytes, 16);
-            programLinkModes.GetRange(0, 16).CopyTo(registerBytes, 16 + 16);
-            programLinkTimes.GetRange(0, 16).CopyTo(registerBytes, 16 + 16 + 16);
+            programNumbers.GetRange(0, count).CopyTo(registerBytes, 16);
+            programLinkModes.GetRange(0, count).CopyTo(registerBytes, 16 + 16);
+            Enumerable.Repeat<byte>(3, getMaxListLenForVersion(37)).ToArray().CopyTo(registerBytes, 16 + 16 + 16);
+            programLinkTimes.GetRange(0, count).CopyTo(registerBytes, 16 + 16 + 16);
 
             return registerBytes;
         }

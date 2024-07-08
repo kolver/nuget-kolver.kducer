@@ -2,6 +2,7 @@
 
 using Kolver;
 using Microsoft.Extensions.Logging.Abstractions;
+using System.Linq;
 using System.Net;
 using System.Net.Sockets;
 
@@ -109,6 +110,9 @@ namespace KducerTests
             await kdu.SendNewProgramDataAsync(1, pr);
             KducerTighteningProgram prRead = await kdu.GetActiveTighteningProgramDataAsync();
             Assert.IsTrue(prRead.getProgramModbusHoldingRegistersAsByteArray().SequenceEqual(pr.getProgramModbusHoldingRegistersAsByteArray()));
+
+            pr.SetTorqueTarget(60000); // invalid torque value is refused by KDU
+            await Assert.ThrowsExceptionAsync<ModbusException>(async () => await kdu.SendNewProgramDataAsync(1, pr));
         }
 
         [TestMethod]
@@ -118,7 +122,7 @@ namespace KducerTests
             using Kducer kdu = new Kducer(IPAddress.Parse(TestConstants.REAL_LIVE_KDU_IP), NullLoggerFactory.Instance);
 
             ushort prNumber = 200;
-            if (await kdu.GetKduMainboardVersion() < 38)
+            if (await kdu.GetKduMainboardVersionAsync() < 38)
                 prNumber = 64;
 
             KducerTighteningProgram prRead = await kdu.GetTighteningProgramDataAsync(prNumber);
@@ -152,7 +156,7 @@ namespace KducerTests
 
             Dictionary<ushort, KducerTighteningProgram> prDic = new();
             ushort maxProg = 200;
-            if (await kdu.GetKduMainboardVersion() < 38)
+            if (await kdu.GetKduMainboardVersionAsync() < 38)
                 maxProg = 64;
 
             for (ushort i = 1; i <= maxProg; i++)
@@ -207,7 +211,7 @@ namespace KducerTests
         }
 
         [TestMethod]
-        [Timeout(5000)]
+        [Timeout(15000)]
         public async Task TestSelectProgramAsync()
         {
             using Kducer kdu = new Kducer(IPAddress.Parse(TestConstants.REAL_LIVE_KDU_IP), NullLoggerFactory.Instance);
@@ -217,28 +221,15 @@ namespace KducerTests
             Assert.AreEqual(pr_set, pr_get);
         }
 
-        /// <summary>
-        /// this test is used to verify stability with quick consecutive manual tightenings
-        /// it blocks indefinitely and is not supposed to pass
-        /// </summary>
-        /// <returns></returns>
         [TestMethod]
-        public async Task TestStability()
+        [Timeout(5000)]
+        public async Task TestSelectSequenceAsync()
         {
             using Kducer kdu = new Kducer(IPAddress.Parse(TestConstants.REAL_LIVE_KDU_IP), NullLoggerFactory.Instance);
-
-            KducerTighteningProgram pr = new KducerTighteningProgram();
-            pr.SetTorqueAngleMode(1);
-            pr.SetAngleTarget(1);
-            await kdu.SendNewProgramDataAsync(1, pr);
-
-            kdu.LockScrewdriverIndefinitelyAfterResult(true);
-            
-            while (true)
-            {
-                KducerTighteningResult kr = await kdu.GetResultAsync(CancellationToken.None);
-                await kdu.EnableScrewdriver();
-            }
+            ushort seq_set = 4;
+            await kdu.SelectSequenceNumberAsync(seq_set);
+            ushort seq_get = await kdu.GetSequenceNumberAsync();
+            Assert.AreEqual(seq_set, seq_get);
         }
 
         [TestMethod]
@@ -304,7 +295,7 @@ namespace KducerTests
 
 
         [TestMethod]
-        [Timeout(10000)]
+        [Timeout(20000)]
         public async Task TestSendBarcodeWithResults()
         {
             using Kducer kdu = new Kducer(IPAddress.Parse(TestConstants.REAL_LIVE_KDU_IP), NullLoggerFactory.Instance);
@@ -316,13 +307,14 @@ namespace KducerTests
             pr.SetAngleTarget(1);
             pr.SetFinalSpeed(50);
             await kdu.SendNewProgramDataAsync(1, pr);
+            await kdu.SelectProgramNumberAsync(1);
 
             List<string> valid_barcodes = ["", "ABcd", "1234567890123456", "!@#$%^&*()_-=|\\-", "/?,.:;\'\"{}[]", "my unique code"]; // note: commas are replaced with dots because CSV results!
 
             await Assert.ThrowsExceptionAsync<ArgumentException>(async () => await kdu.SendBarcodeAsync("this barcode is too long!"));
             await Assert.ThrowsExceptionAsync<ArgumentException>(async () => await kdu.SendBarcodeAsync("12345678901234567")); // 17 chars, too long
 
-            foreach( string barcode in valid_barcodes )
+            foreach (string barcode in valid_barcodes)
             {
                 await kdu.SendBarcodeAsync(barcode);
                 KducerTighteningResult res = await kdu.RunScrewdriverUntilResultAsync(CancellationToken.None);
@@ -355,7 +347,7 @@ namespace KducerTests
         {
             using Kducer kdu = new Kducer(IPAddress.Parse(TestConstants.REAL_LIVE_KDU_IP));
 
-            KducerSequenceOfTighteningPrograms seq = new KducerSequenceOfTighteningPrograms([1, 2, 3, 6], [0, 0, 1, 2], [3, 50, 3, 3], "barcode");
+            KducerSequenceOfTighteningPrograms seq = new KducerSequenceOfTighteningPrograms([1, 2, 3, 6], [0, 0, 1, 2], [3, 50, 3, 3], "barcode", await kdu.GetKduMainboardVersionAsync());
 
             await kdu.SendNewSequenceDataAsync(1, seq);
             KducerSequenceOfTighteningPrograms seqRead = await kdu.GetActiveSequenceDataAsync();
@@ -369,7 +361,7 @@ namespace KducerTests
             using Kducer kdu = new Kducer(IPAddress.Parse(TestConstants.REAL_LIVE_KDU_IP));
 
             ushort sequenceNumber = 24;
-            if (await kdu.GetKduMainboardVersion() < 38)
+            if (await kdu.GetKduMainboardVersionAsync() < 38)
                 sequenceNumber = 8;
 
             KducerSequenceOfTighteningPrograms seqRead = await kdu.GetSequenceDataAsync(sequenceNumber);
@@ -391,7 +383,7 @@ namespace KducerTests
 
             Dictionary<ushort, KducerSequenceOfTighteningPrograms> seqDic = new();
             ushort maxSeq = 24;
-            if (await kdu.GetKduMainboardVersion() < 38)
+            if (await kdu.GetKduMainboardVersionAsync() < 38)
             {
                 maxSeq = 8;
                 seq = new KducerSequenceOfTighteningPrograms([1, 2, 3, 6], [0, 0, 1, 2], [3, 50, 3, 3], "", 37);
@@ -405,6 +397,145 @@ namespace KducerTests
             Dictionary<ushort, KducerSequenceOfTighteningPrograms> seqRead = await kdu.GetAllSequencesDataAsync();
             for (ushort i = 1; i <= maxSeq; i++)
                 Assert.IsTrue(seqRead[i].getSequenceModbusHoldingRegistersAsByteArray().SequenceEqual(seqDic[i].getSequenceModbusHoldingRegistersAsByteArray()));
+        }
+
+        [TestMethod]
+        [Timeout(10000)]
+        public async Task TestGetGeneralSettingsData()
+        {
+            using Kducer kdu = new Kducer(IPAddress.Parse(TestConstants.REAL_LIVE_KDU_IP));
+
+            KducerControllerGeneralSettings genSetts = await kdu.GetGeneralSettingsDataAsync();
+
+            await kdu.SendGeneralSettingsDataAsync(genSetts);
+
+            KducerControllerGeneralSettings genSettsReRead = await kdu.GetGeneralSettingsDataAsync();
+
+            Assert.IsTrue(genSetts.getGeneralSettingsModbusHoldingRegistersAsByteArray().SequenceEqual(genSettsReRead.getGeneralSettingsModbusHoldingRegistersAsByteArray()));
+        }
+
+        [TestMethod]
+        [Timeout(20000)]
+        public async Task TestSendGeneralSettingsData()
+        {
+            using Kducer kdu = new Kducer(IPAddress.Parse(TestConstants.REAL_LIVE_KDU_IP));
+
+            KducerControllerGeneralSettings genSetts = await kdu.GetGeneralSettingsDataAsync();
+
+            byte[] settingsFromKdu = [0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 84, 79, 82, 81, 85, 69, 32, 83, 84, 65, 84, 73, 79, 78, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 7, 161, 32, 0, 0, 0, 0];
+            if (await kdu.GetKduMainboardVersionAsync() <= 37)
+                settingsFromKdu = settingsFromKdu.ToList().GetRange(0, 78).ToArray();
+            KducerControllerGeneralSettings newGenSetts = new KducerControllerGeneralSettings(settingsFromKdu);
+            await kdu.SendGeneralSettingsDataAsync(newGenSetts);
+            KducerControllerGeneralSettings genSettsRead = await kdu.GetGeneralSettingsDataAsync();
+            Assert.IsTrue(newGenSetts.getGeneralSettingsModbusHoldingRegistersAsByteArray().SequenceEqual(genSettsRead.getGeneralSettingsModbusHoldingRegistersAsByteArray()));
+
+            settingsFromKdu = [0, 1, 0, 0, 0, 100, 0, 1, 0, 1, 0, 2, 0, 0, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 0, 0, 0, 0, 1, 0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 75, 68, 85, 67, 69, 82, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 15, 66, 64, 0, 53, 0, 3];
+            if (await kdu.GetKduMainboardVersionAsync() <= 37)
+                settingsFromKdu = settingsFromKdu.ToList().GetRange(0, 78).ToArray();
+            newGenSetts = new KducerControllerGeneralSettings(settingsFromKdu);
+            if (await kdu.GetKduMainboardVersionAsync() <= 37)
+                newGenSetts.SetSwbxAndCbs880Mode(0);
+            if (await kdu.GetKduMainboardVersionAsync() <= 38)
+                newGenSetts.SetCn3BitxPrSeqInputSelectionMode(0);
+            await kdu.SendGeneralSettingsDataAsync(newGenSetts);
+            genSettsRead = await kdu.GetGeneralSettingsDataAsync();
+            byte[] read = genSettsRead.getGeneralSettingsModbusHoldingRegistersAsByteArray();
+            byte[] sent = newGenSetts.getGeneralSettingsModbusHoldingRegistersAsByteArray();
+            for (int i = 0; i < read.Length; i++)
+                if (read[i] != sent[i])
+                    Console.WriteLine($"read[{i}]={read[i]}, sent[{i}]={sent[i]}");
+            Assert.IsTrue(sent.SequenceEqual(read));
+
+            await kdu.SendGeneralSettingsDataAsync(genSetts);
+            genSettsRead = await kdu.GetGeneralSettingsDataAsync();
+            Assert.IsTrue(genSetts.getGeneralSettingsModbusHoldingRegistersAsByteArray().SequenceEqual(genSettsRead.getGeneralSettingsModbusHoldingRegistersAsByteArray()));
+
+            settingsFromKdu = [0, 100, 0, 0, 0, 100, 0, 1, 0, 1, 0, 2, 0, 0, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 0, 0, 0, 0, 1, 0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 75, 68, 85, 67, 69, 82, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 15, 66, 64, 0, 53, 0, 3];
+            if (await kdu.GetKduMainboardVersionAsync() <= 37)
+                settingsFromKdu = settingsFromKdu.ToList().GetRange(0, 78).ToArray(); 
+            newGenSetts = new KducerControllerGeneralSettings(settingsFromKdu); // these settings have 100 for language, invalid value
+            await Assert.ThrowsExceptionAsync<ModbusException>(async () => await kdu.SendGeneralSettingsDataAsync(newGenSetts));
+        }
+        [TestMethod]
+        [Timeout(60000)]
+        public async Task TestSendAllDataGetAllData()
+        {
+            using Kducer kdu = new Kducer(IPAddress.Parse(TestConstants.REAL_LIVE_KDU_IP));
+
+            // read, write, compare
+            Tuple<KducerControllerGeneralSettings, Dictionary<ushort, KducerTighteningProgram>, Dictionary<ushort, KducerSequenceOfTighteningPrograms>> sentData = await kdu.GetSettingsAndProgramsAndSequencesDataAsync();
+            await kdu.SendAllSettingsProgramsAndSequencesDataAsync(sentData);
+            Tuple<KducerControllerGeneralSettings, Dictionary<ushort, KducerTighteningProgram>, Dictionary<ushort, KducerSequenceOfTighteningPrograms>> reReadKduData = await kdu.GetSettingsAndProgramsAndSequencesDataAsync();
+
+            Assert.IsTrue(sentData.Item1.getGeneralSettingsModbusHoldingRegistersAsByteArray().SequenceEqual(reReadKduData.Item1.getGeneralSettingsModbusHoldingRegistersAsByteArray()));
+
+            Assert.IsTrue(sentData.Item2.Count == reReadKduData.Item2.Count);
+            for (ushort i = 1; i <= sentData.Item2.Keys.Max(); i++)
+                Assert.IsTrue(sentData.Item2[i].getProgramModbusHoldingRegistersAsByteArray().SequenceEqual(sentData.Item2[i].getProgramModbusHoldingRegistersAsByteArray()));
+
+            Assert.IsTrue(sentData.Item3.Count == reReadKduData.Item3.Count);
+            for (ushort i = 1; i < sentData.Item3.Keys.Max(); i++)
+                Assert.IsTrue(sentData.Item3[i].getSequenceModbusHoldingRegistersAsByteArray().SequenceEqual(sentData.Item3[i].getSequenceModbusHoldingRegistersAsByteArray()));
+        }
+
+        [TestMethod]
+        [Timeout(120000)]
+        public async Task TestSendFile()
+        {
+            using Kducer kdu = new Kducer(IPAddress.Parse(TestConstants.REAL_LIVE_KDU_IP));
+
+            Tuple<KducerControllerGeneralSettings, Dictionary<ushort, KducerTighteningProgram>, Dictionary<ushort, KducerSequenceOfTighteningPrograms>> sentData, reReadKduData;
+            
+            // send file, read, compare
+            sentData = await KducerKduDataFileReader.ReadKduDataFile("../../../v37 file.kdu");
+
+            await kdu.SendAllSettingsProgramsAndSequencesDataAsync(sentData);
+            reReadKduData = await kdu.GetSettingsAndProgramsAndSequencesDataAsync();
+
+            Assert.IsTrue(sentData.Item1.getGeneralSettingsModbusHoldingRegistersAsByteArray().SequenceEqual(reReadKduData.Item1.getGeneralSettingsModbusHoldingRegistersAsByteArray()));
+
+            // Assert.IsTrue(sentData.Item2.Count == reReadKduData.Item2.Count); this is not true if file is v37 and KDU is v38
+            for (ushort i = 1; i <= sentData.Item2.Keys.Max(); i++)
+                Assert.IsTrue(sentData.Item2[i].getProgramModbusHoldingRegistersAsByteArray().SequenceEqual(reReadKduData.Item2[i].getProgramModbusHoldingRegistersAsByteArray()));
+
+            // Assert.IsTrue(sentData.Item3.Count == reReadKduData.Item3.Count); this is not true if file is v37 and KDU is v38
+            for (ushort i = 1; i < sentData.Item3.Keys.Max(); i++)
+            {
+                byte[] sentArray = sentData.Item3[i].getSequenceModbusHoldingRegistersAsByteArray();
+                if (await kdu.GetKduMainboardVersionAsync() >= 38)
+                    sentArray = sentData.Item3[i].getSequenceModbusHoldingRegistersAsByteArray_KDUv38andLater();
+                Assert.IsTrue(sentArray.SequenceEqual(reReadKduData.Item3[i].getSequenceModbusHoldingRegistersAsByteArray()));
+            }
+
+            // send file, read, compare
+            sentData = await KducerKduDataFileReader.ReadKduDataFile("../../../v38 file.kdu");
+            if (await kdu.GetKduMainboardVersionAsync() <= 37)
+            {
+                for (ushort i = 65; i <= 200; i++)
+                    sentData.Item2.Remove(i);
+                for (ushort i = 9; i <= 24; i++)
+                    sentData.Item3.Remove(i);
+                Dictionary<ushort, KducerSequenceOfTighteningPrograms> seqs_reduced = new();
+                for (ushort i = 1; i <= 8; i++)
+                    seqs_reduced.Add(i, new KducerSequenceOfTighteningPrograms(sentData.Item3[i].getProgramsAsByteArray().ToList().GetRange(0, 16), sentData.Item3[i].getLinkModesAsByteArray().ToList().GetRange(0, 16), sentData.Item3[i].getLinkTimesAsByteArray().ToList().GetRange(0, 16), "", 37));
+                sentData = Tuple.Create(sentData.Item1, sentData.Item2, seqs_reduced);
+            }
+            await kdu.SendAllSettingsProgramsAndSequencesDataAsync(sentData);
+            reReadKduData = await kdu.GetSettingsAndProgramsAndSequencesDataAsync();
+
+            if (await kdu.GetKduMainboardVersionAsync() <= 37)
+                Assert.IsTrue(sentData.Item1.getGeneralSettingsModbusHoldingRegistersAsByteArray_KDUv37andPrior().SequenceEqual(reReadKduData.Item1.getGeneralSettingsModbusHoldingRegistersAsByteArray_KDUv37andPrior()));
+            else
+                Assert.IsTrue(sentData.Item1.getGeneralSettingsModbusHoldingRegistersAsByteArray().SequenceEqual(reReadKduData.Item1.getGeneralSettingsModbusHoldingRegistersAsByteArray()));
+
+            Assert.IsTrue(sentData.Item2.Count == reReadKduData.Item2.Count);
+            for (ushort i = 1; i <= sentData.Item2.Keys.Max(); i++)
+                Assert.IsTrue(sentData.Item2[i].getProgramModbusHoldingRegistersAsByteArray().SequenceEqual(reReadKduData.Item2[i].getProgramModbusHoldingRegistersAsByteArray()));
+
+            Assert.IsTrue(sentData.Item3.Count == reReadKduData.Item3.Count);
+            for (ushort i = 1; i < sentData.Item3.Keys.Max(); i++)
+                Assert.IsTrue(sentData.Item3[i].getSequenceModbusHoldingRegistersAsByteArray().SequenceEqual(reReadKduData.Item3[i].getSequenceModbusHoldingRegistersAsByteArray()));
         }
     }
 
@@ -512,9 +643,9 @@ namespace KducerTests
             setAllParametersOfKduTighteningProgram(builtPr);
 
             prFromKdu = [0, 0, 0, 50, 0, 0, 7, 208, 0, 0, 3, 232, 0, 0, 60, 140, 0, 0, 62, 128, 0, 0, 58, 152, 0, 0, 0, 100, 0, 0, 1, 99, 0, 0, 3, 82, 0, 0, 19, 136, 0, 1, 0, 0, 111, 27, 0, 0, 0, 25, 0, 0, 0, 0, 0, 0, 0, 60, 0, 0, 0, 150, 0, 1, 0, 0, 0, 0, 0, 0, 14, 16, 0, 0, 2, 88, 0, 0, 3, 231, 0, 1, 0, 0, 0, 0, 0, 0, 5, 220, 0, 0, 0, 10, 0, 0, 0, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0, 8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 8, 0, 0, 0, 99, 116, 101, 115, 116, 32, 112, 114, 111, 103, 114, 97, 109, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3, 232, 0, 1, 1, 44, 1, 244, 0, 10, 0, 30, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
-            for(int i = 0; i < prFromKdu.Length; i++)
+            for (int i = 0; i < prFromKdu.Length; i++)
                 if (prFromKdu[i] != builtPr.getProgramModbusHoldingRegistersAsByteArray()[i])
-                    Console.WriteLine($"builtPr[{i}]={builtPr.getProgramModbusHoldingRegistersAsByteArray()[i]}, prFromKdu[{i}]={prFromKdu[i]}" );
+                    Console.WriteLine($"builtPr[{i}]={builtPr.getProgramModbusHoldingRegistersAsByteArray()[i]}, prFromKdu[{i}]={prFromKdu[i]}");
             Assert.IsTrue(prFromKdu.SequenceEqual(builtPr.getProgramModbusHoldingRegistersAsByteArray()));
         }
 
@@ -629,7 +760,7 @@ namespace KducerTests
             seq.getSequenceModbusHoldingRegistersAsByteArray();
 
             Assert.ThrowsException<ArgumentException>(() => new KducerSequenceOfTighteningPrograms(new List<byte>([0])));
-            Assert.ThrowsException<ArgumentException>(() => new KducerSequenceOfTighteningPrograms(new List<byte>([0,1,2])));
+            Assert.ThrowsException<ArgumentException>(() => new KducerSequenceOfTighteningPrograms(new List<byte>([0, 1, 2])));
             Assert.ThrowsException<ArgumentException>(() => new KducerSequenceOfTighteningPrograms(new List<byte>([])));
             Assert.ThrowsException<ArgumentException>(() => new KducerSequenceOfTighteningPrograms([0]));
             Assert.ThrowsException<ArgumentException>(() => new KducerSequenceOfTighteningPrograms([0, 1, 2]));
@@ -640,8 +771,8 @@ namespace KducerTests
             Assert.ThrowsException<ArgumentException>(() => new KducerSequenceOfTighteningPrograms([200], "this barcode is too long"));
             Assert.ThrowsException<ArgumentException>(() => new KducerSequenceOfTighteningPrograms([200], "12345678901234567"));
             Assert.ThrowsException<ArgumentException>(() => new KducerSequenceOfTighteningPrograms([1], [3]));
-            Assert.ThrowsException<ArgumentException>(() => new KducerSequenceOfTighteningPrograms([1], [2,2]));
-            Assert.ThrowsException<ArgumentException>(() => new KducerSequenceOfTighteningPrograms([1,1], [2]));
+            Assert.ThrowsException<ArgumentException>(() => new KducerSequenceOfTighteningPrograms([1], [2, 2]));
+            Assert.ThrowsException<ArgumentException>(() => new KducerSequenceOfTighteningPrograms([1, 1], [2]));
             Assert.ThrowsException<ArgumentException>(() => new KducerSequenceOfTighteningPrograms([1, 1], [2], [3]));
 
             // list constructor
@@ -656,7 +787,99 @@ namespace KducerTests
 
             // asking for v37 sequence with more than 16 programs
             Assert.ThrowsException<InvalidOperationException>(() => new KducerSequenceOfTighteningPrograms(Enumerable.Repeat<byte>(2, 112).ToList().ToArray()).getSequenceModbusHoldingRegistersAsByteArray_KDUv37andPrior());
-            
+
+        }
+    }
+
+    [TestClass]
+    public class KducerControllerGeneralSettingsTests
+    {
+        [TestMethod]
+        [Timeout(1000)]
+        public void TestSetValues()
+        {
+            KducerControllerGeneralSettings builtSettings = new KducerControllerGeneralSettings();
+            Assert.AreEqual((uint)500000, builtSettings.GetCalibrationReminderInterval());
+
+            byte[] settingsFromKdu = [0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 84, 79, 82, 81, 85, 69, 32, 83, 84, 65, 84, 73, 79, 78, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 7, 161, 32, 0, 0, 0, 0];
+            builtSettings.SetCmdOkEscResetSource(2);
+            Assert.IsTrue(settingsFromKdu.SequenceEqual(builtSettings.getGeneralSettingsModbusHoldingRegistersAsByteArray()));
+
+            builtSettings = new KducerControllerGeneralSettings(new byte[88]);
+            setDefaultParametersOfKduGeneralSettings(builtSettings);
+            for (int i = 0; i < settingsFromKdu.Length; i++)
+                if (settingsFromKdu[i] != builtSettings.getGeneralSettingsModbusHoldingRegistersAsByteArray()[i])
+                    Console.WriteLine($"built[{i}]={builtSettings.getGeneralSettingsModbusHoldingRegistersAsByteArray()[i]}, fromKdu[{i}]={settingsFromKdu[i]}");
+            Assert.IsTrue(settingsFromKdu.SequenceEqual(builtSettings.getGeneralSettingsModbusHoldingRegistersAsByteArray()));
+
+            builtSettings = new KducerControllerGeneralSettings(new byte[88]);
+            setMiscParametersOfKduGeneralSettings(builtSettings);
+
+            settingsFromKdu = [0, 1, 0, 0, 0, 100, 0, 1, 0, 1, 0, 2, 0, 0, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 0, 0, 0, 0, 1, 0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 75, 68, 85, 67, 69, 82, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 15, 66, 64, 0, 53, 0, 3];
+            for (int i = 0; i < settingsFromKdu.Length; i++)
+                if (settingsFromKdu[i] != builtSettings.getGeneralSettingsModbusHoldingRegistersAsByteArray()[i])
+                    Console.WriteLine($"built[{i}]={builtSettings.getGeneralSettingsModbusHoldingRegistersAsByteArray()[i]}, fromKdu[{i}]={settingsFromKdu[i]}");
+            Assert.IsTrue(settingsFromKdu.SequenceEqual(builtSettings.getGeneralSettingsModbusHoldingRegistersAsByteArray()));
+        }
+
+        internal static void setDefaultParametersOfKduGeneralSettings(KducerControllerGeneralSettings builtGenSett)
+        {
+            builtGenSett.SetLanguage(0);
+            builtGenSett.SetPasswordOnOff(false);
+            builtGenSett.SetPassword(0);
+            builtGenSett.SetCmdOkEscResetSource(2);
+            builtGenSett.SetRemoteProgramSource(0);
+            builtGenSett.SetRemoteSequenceSource(0);
+            builtGenSett.SetResetMode(0);
+            builtGenSett.SetBarcodeMode(0);
+            builtGenSett.SetSwbxAndCbs880Mode(0);
+            builtGenSett.SetCurrentSequenceNumber(1);
+            builtGenSett.SetCurrentProgramNumber(1);
+            builtGenSett.SetTorqueUnits(0);
+            builtGenSett.SetSequenceModeOnOff(false);
+            builtGenSett.SetFastDock05ModeOnOff(false);
+            builtGenSett.SetBuzzerSoundsOnOff(true);
+            builtGenSett.SetResultsFormat(1);
+            builtGenSett.SetStationName("TORQUE STATION");
+            builtGenSett.SetCalibrationReminderMode(2);
+            builtGenSett.SetCalibrationReminderInterval(500000);
+            builtGenSett.SetLockIfCn5NotConnectedOnOff(false);
+            builtGenSett.SetLockIfUsbNotConnectedOnOff(false);
+            builtGenSett.SetInvertLogicCn3InStopOnOff(false);
+            builtGenSett.SetInvertLogicCn3InPieceOnOff(false);
+            builtGenSett.SetSkipScrewButtonOnOff(false);
+            builtGenSett.SetShowReverseTorqueAndAngleOnOff(false);
+            builtGenSett.SetCn3BitxPrSeqInputSelectionMode(0);
+        }
+
+        internal static void setMiscParametersOfKduGeneralSettings(KducerControllerGeneralSettings builtGenSett)
+        {
+            builtGenSett.SetLanguage(1);
+            builtGenSett.SetPasswordOnOff(true);
+            builtGenSett.SetPassword(100);
+            builtGenSett.SetCmdOkEscResetSource(1);
+            builtGenSett.SetRemoteProgramSource(2);
+            builtGenSett.SetRemoteSequenceSource(0);
+            builtGenSett.SetResetMode(1);
+            builtGenSett.SetBarcodeMode(1);
+            builtGenSett.SetSwbxAndCbs880Mode(1);
+            builtGenSett.SetCurrentSequenceNumber(1);
+            builtGenSett.SetCurrentProgramNumber(1);
+            builtGenSett.SetTorqueUnits(1);
+            builtGenSett.SetSequenceModeOnOff(false);
+            builtGenSett.SetFastDock05ModeOnOff(true);
+            builtGenSett.SetBuzzerSoundsOnOff(true);
+            builtGenSett.SetResultsFormat(1);
+            builtGenSett.SetStationName("KDUCER");
+            builtGenSett.SetCalibrationReminderMode(2);
+            builtGenSett.SetCalibrationReminderInterval(1000000);
+            builtGenSett.SetLockIfCn5NotConnectedOnOff(true);
+            builtGenSett.SetLockIfUsbNotConnectedOnOff(false);
+            builtGenSett.SetInvertLogicCn3InStopOnOff(true);
+            builtGenSett.SetInvertLogicCn3InPieceOnOff(false);
+            builtGenSett.SetSkipScrewButtonOnOff(true);
+            builtGenSett.SetShowReverseTorqueAndAngleOnOff(true);
+            builtGenSett.SetCn3BitxPrSeqInputSelectionMode(3);
         }
     }
 
@@ -754,6 +977,96 @@ namespace KducerTests
             csv = "2";
             Assert.AreEqual(csv, ta.getAngleSeriesAsCsv());
             Assert.AreEqual(csv + emptyCols, ta.getAngleSeriesAsCsvWith70columns());
+        }
+    }
+
+    [TestClass]
+    public class KducerKduDataFileReaderTests
+    {
+        [TestMethod]
+        public async Task TestReadFile()
+        {
+            await ReadFileTests("../../../v38 file.kdu", 38);
+            await ReadFileTests("../../../v37 file.kdu", 37);
+        }
+        private async Task ReadFileTests(string path, ushort kduVersion)
+        {
+            // just testing for exceptions
+            Tuple<KducerControllerGeneralSettings, Dictionary<ushort, KducerTighteningProgram>, Dictionary<ushort, KducerSequenceOfTighteningPrograms>> data = await KducerKduDataFileReader.ReadKduDataFile(path);
+
+            // settings
+            byte[] settingsbytes = [0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 84, 79, 82, 81, 85, 69, 32, 83, 84, 65, 84, 73, 79, 78, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 7, 161, 32, 0, 0, 0, 0];
+            KducerControllerGeneralSettings settings = new KducerControllerGeneralSettings(settingsbytes);
+            byte[] settingsbytesRead;
+            if (kduVersion == 37)
+                settingsbytesRead = data.Item1.getGeneralSettingsModbusHoldingRegistersAsByteArray_KDUv37andPrior();
+            else
+                settingsbytesRead = data.Item1.getGeneralSettingsModbusHoldingRegistersAsByteArray_KDUv38();
+            for (int i = 0; i < settingsbytesRead.Length; i++)
+            {
+                Assert.AreEqual(settingsbytes[i], settings.getGeneralSettingsModbusHoldingRegistersAsByteArray()[i]);
+                if (settingsbytes[i] != settingsbytesRead[i])
+                    Console.WriteLine($"built[{i}]={settingsbytes[i]}, fromFile[{i}]={settingsbytesRead[i]}");
+            }
+            if (kduVersion == 37)
+                settingsbytes = settings.getGeneralSettingsModbusHoldingRegistersAsByteArray_KDUv37andPrior();
+            else
+                settingsbytes = settings.getGeneralSettingsModbusHoldingRegistersAsByteArray_KDUv38();
+            Assert.IsTrue(settingsbytesRead.SequenceEqual(settingsbytes));
+
+            // programs
+            byte[] programBytes = [0, 0, 0, 100, 0, 0, 0, 110, 0, 0, 0, 90, 0, 0, 0, 0, 0, 0, 117, 48, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 44, 0, 0, 1, 64, 0, 0, 0, 0, 0, 0, 0, 0, 8, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 200, 0, 2, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1, 64, 0, 0, 0, 200, 0, 2, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 3, 0, 2, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3, 232, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+            KducerTighteningProgram prog = new KducerTighteningProgram(programBytes);
+            Assert.IsTrue(programBytes.SequenceEqual(prog.getProgramModbusHoldingRegistersAsByteArray()));
+            if (kduVersion <= 37)
+            {
+                prog.SetTorqueTarget(50);
+                prog.SetTorqueMax(150);
+                prog.SetTorqueMin(0);
+                prog.SetDownshiftInitialSpeed(600);
+                prog.SetLeverErrorOnOff(false);
+                prog.SetReverseSpeed(300);
+                prog.SetMaxReverseTorque(150);
+            }
+            for (ushort i = 1; i <= 8; i++)
+            {
+                if (kduVersion >= 38) prog.SetSocket(i);
+                else prog.SetSocket(0);
+                byte[] built = prog.getProgramModbusHoldingRegistersAsByteArray();
+                byte[] read = data.Item2[i].getProgramModbusHoldingRegistersAsByteArray();
+                Assert.IsTrue(built.Length == read.Length);
+                for (int j = 0; j < built.Length; j++)
+                    if (built[j] != read[j])
+                        Console.WriteLine($"built[{j}]={built[j]}, fromFile[{j}]={read[j]}");
+                Assert.IsTrue(built.SequenceEqual(read));
+            }
+            prog.SetSocket(0);
+            ushort maxprog = 200;
+            if (kduVersion <= 37)
+                maxprog = 64;
+            for (ushort i = 9; i <= maxprog; i++)
+                Assert.IsTrue(prog.getProgramModbusHoldingRegistersAsByteArray().SequenceEqual(data.Item2[i].getProgramModbusHoldingRegistersAsByteArray()));
+
+            // sequences
+            KducerSequenceOfTighteningPrograms seq = new([1], [1]);
+            ushort maxseq = 24;
+            if (kduVersion <= 37)
+                maxseq = 8;
+            for (ushort i = 1; i <= maxseq; i++)
+            {
+                byte[] built, read;
+                if (kduVersion >= 38)
+                {
+                    built = seq.getSequenceModbusHoldingRegistersAsByteArray();
+                    read = data.Item3[i].getSequenceModbusHoldingRegistersAsByteArray();
+                }
+                else
+                {
+                    built = seq.getSequenceModbusHoldingRegistersAsByteArray_KDUv37andPrior();
+                    read = data.Item3[i].getSequenceModbusHoldingRegistersAsByteArray_KDUv37andPrior();
+                }
+                Assert.IsTrue(built.SequenceEqual(read));
+            }
         }
     }
 }

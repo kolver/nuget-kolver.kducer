@@ -39,5 +39,23 @@ namespace Kolver
                 destinationBytes[index + 1] = (byte)(value >> 8);
             }
         }
+
+        internal static void CopyUintToBytesAsModbusBigendian(uint value, byte[] destinationBytes, int index)
+        {
+            if (BitConverter.IsLittleEndian)
+            {
+                destinationBytes[index] = (byte)(value >> 24);
+                destinationBytes[index + 1] = (byte)(value >> 16);
+                destinationBytes[index + 2] = (byte)(value >> 8);
+                destinationBytes[index + 3] = (byte)value;
+            }
+            else
+            {
+                destinationBytes[index] = (byte)value;
+                destinationBytes[index + 1] = (byte)(value >> 8);
+                destinationBytes[index + 2] = (byte)(value >> 16);
+                destinationBytes[index + 3] = (byte)(value >> 24);
+            }
+        }
     }
 }

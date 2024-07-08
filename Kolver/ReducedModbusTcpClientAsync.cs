@@ -75,11 +75,11 @@ namespace Kolver
                 Task completedTask = await Task.WhenAny(sendTask, socketTimeoutTask).ConfigureAwait(false);
 
                 if (completedTask == socketTimeoutTask)
-                    throw new SocketException(); // timed out before BeginSend completed
+                    throw new SocketException(10060); // timed out before BeginSend completed
 
                 int nBytesActuallySent = sendTask.Result;
                 if (nBytesActuallySent == 0)
-                    throw new SocketException();
+                    throw new SocketException(-1);
 
                 bytesSent += nBytesActuallySent;
             }
@@ -106,11 +106,11 @@ namespace Kolver
                 Task completedTask = await Task.WhenAny(receiveTask, socketTimeoutTask).ConfigureAwait(false);
 
                 if (completedTask == socketTimeoutTask)
-                    throw new SocketException(); // timed out before BeginReceive completed
+                    throw new SocketException(10060); // timed out before BeginReceive completed
 
                 int nBytesActuallyReceived = receiveTask.Result;
                 if (nBytesActuallyReceived == 0)
-                    throw new SocketException();
+                    throw new SocketException(-1);
 
                 bytesReceived += nBytesActuallyReceived;
             }
@@ -145,7 +145,7 @@ namespace Kolver
             {
                 if (responseData[0] > 0x80 && (responseData[0] - 0x80) == request[7])
                 {
-                    int exceptionCode = responseData[0] - request[7];
+                    int exceptionCode = responseData[1];
                     // modbus exception
                     if (exceptionCode == 6)
                         throw new ModbusException($"Received modbus exception code {exceptionCode}: modbus server busy.", exceptionCode);
