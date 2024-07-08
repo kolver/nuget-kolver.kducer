@@ -5,7 +5,7 @@ It's compatible with .NET standard 2.0 (backwards compatible with .NET framework
 Brought to you by Kolver www.kolver.com
 ## Installation
 ```
-dotnet add package Kolver.Kducer --version 0.2.0-rc
+dotnet add package Kolver.Kducer --version 0.3.0
 ```
 ## Usage
 Every public method is commented, so if you are using Visual Studio you can see the documentation via IntelliSense as you code.
