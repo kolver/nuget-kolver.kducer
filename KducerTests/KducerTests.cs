@@ -99,6 +99,35 @@ namespace KducerTests
     {
         [TestMethod]
         [Timeout(10000)]
+        public async Task TestClearResultsQueue()
+        {
+            using Kducer kdu = new Kducer(IPAddress.Parse(TestConstants.REAL_LIVE_KDU_IP));
+
+            await kdu.IsConnectedWithTimeoutAsync();
+
+            kdu.ClearResultsQueue();
+            Assert.IsFalse(kdu.HasNewResult());
+
+            KducerTighteningProgram pr = new KducerTighteningProgram();
+            pr.SetTorqueAngleMode(1);
+            pr.SetAngleTarget(1);
+
+            await kdu.SelectProgramNumberAsync(1);
+            await kdu.SendNewProgramDataAsync(1, pr);
+            await kdu.RunScrewdriverUntilResultAsync(CancellationToken.None);
+
+            Assert.IsFalse(kdu.HasNewResult());
+
+            Console.WriteLine("Run the screwdriver...");
+            await Task.Delay(5000);
+            Assert.IsTrue(kdu.HasNewResult());
+
+            kdu.ClearResultsQueue();
+            Assert.IsFalse(kdu.HasNewResult());
+        }
+
+        [TestMethod]
+        [Timeout(10000)]
         public async Task TestSendProgramData()
         {
             using Kducer kdu = new Kducer(IPAddress.Parse(TestConstants.REAL_LIVE_KDU_IP), NullLoggerFactory.Instance);

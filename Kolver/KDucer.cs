@@ -320,23 +320,40 @@ namespace Kolver
             CancellationTokenSource cancelGetResult = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, asyncCommsCts.Token);
             CancellationToken cancel = cancelGetResult.Token;
 
-            while (true)
+            try
             {
-                if (!resultsQueue.IsEmpty)
+                while (true)
                 {
-                    if (resultsQueue.TryDequeue(out KducerTighteningResult res) == true)
+                    if (!resultsQueue.IsEmpty)
                     {
-                        cancelGetResult.Dispose();
-                        return res;
+                        if (resultsQueue.TryDequeue(out KducerTighteningResult res) == true)
+                            return res;
+                    }
+                    await Task.Delay(POLL_INTERVAL_MS, cancel).ConfigureAwait(false);
+                    if (throwExceptionIfKduConnectionDrops == true)
+                    {
+                        if (mbClient.Connected() == false)
+                            throw new SocketException(10057); // not connected
                     }
                 }
-                await Task.Delay(POLL_INTERVAL_MS, cancel).ConfigureAwait(false);
-                if (throwExceptionIfKduConnectionDrops == true)
-                {
-                    if (mbClient.Connected() == false)
-                        throw new SocketException(10057); // not connected
-                }
             }
+            finally
+            {
+                cancelGetResult.Dispose();
+            }
+        }
+
+        /// <summary>
+        /// Clears the FIFO tightening result queue.
+        /// Note: GetResult and GetResultAsync already remove the result from the queue.
+        /// Use ClearResultsQueue only if you want to discard all tightening results that you have not retrieved via GetResult or GetResultAsync.
+        /// This method is equivalent to calling GetResult() while HasNewResult() is true
+        /// </summary>
+        public void ClearResultsQueue()
+        {
+            // ConcurrentQueue.Clear() is not available on .NET Standard 2.0
+            while (!resultsQueue.IsEmpty)
+                resultsQueue.TryDequeue(out KducerTighteningResult _);
         }
 
         /// <summary>
@@ -423,10 +440,16 @@ namespace Kolver
         {
             CancellationTokenSource cancelRunScrewdriver = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, asyncCommsCts.Token);
 
-            KduUserCmdTaskAsync userCmdTask = new KduUserCmdTaskAsync(UserCmd.RunScrewdriver, cancelRunScrewdriver.Token, 0, replaceResultTimestampWithLocalTimestamp);
-            await EnqueueAndWaitForUserCmdToBeProcessedInAsyncCommsLoopAsync(userCmdTask).ConfigureAwait(false);
-            cancelRunScrewdriver.Dispose();
-            return userCmdTask.tighteningResult;
+            try
+            {
+                KduUserCmdTaskAsync userCmdTask = new KduUserCmdTaskAsync(UserCmd.RunScrewdriver, cancelRunScrewdriver.Token, 0, replaceResultTimestampWithLocalTimestamp);
+                await EnqueueAndWaitForUserCmdToBeProcessedInAsyncCommsLoopAsync(userCmdTask).ConfigureAwait(false);
+                return userCmdTask.tighteningResult;
+            }
+            finally
+            {
+                cancelRunScrewdriver.Dispose();
+            }
         }
 
         /// <summary>
