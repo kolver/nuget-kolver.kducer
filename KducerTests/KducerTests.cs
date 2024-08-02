@@ -81,6 +81,19 @@ namespace KducerTests
         }
 
         [TestMethod]
+        [Timeout(3000)]
+        public async Task TestReadBits()
+        {
+            using ReducedModbusTcpClientAsync kdu = new ReducedModbusTcpClientAsync(IPAddress.Parse(TestConstants.REAL_LIVE_KDU_IP));
+            await kdu.ConnectAsync();
+            Assert.IsTrue(kdu.Connected());
+            for (ushort i = 0; i < 48; i++)
+                await kdu.ReadCoilsAsync(i, (ushort)(48 - i));
+            for (ushort i = 0; i < 32; i++)
+                await kdu.ReadDiscreteInputsAsync(i, (ushort)(32 - i));
+        }
+
+        [TestMethod]
         [Timeout(10000)]
         public async Task TestPullCableFromKdu()
         {
@@ -196,6 +209,34 @@ namespace KducerTests
             Dictionary<ushort, KducerTighteningProgram> prRead = await kdu.GetAllTighteningProgramDataAsync();
             for (ushort i = 1; i <= maxProg; i++)
                 Assert.IsTrue(prRead[i].getProgramModbusHoldingRegistersAsByteArray().SequenceEqual(prDic[i].getProgramModbusHoldingRegistersAsByteArray()));
+        }
+
+        [TestMethod]
+        [Timeout(10000)]
+        public async Task TestReadCoils()
+        {
+            using Kducer kdu = new Kducer(IPAddress.Parse(TestConstants.REAL_LIVE_KDU_IP), NullLoggerFactory.Instance);
+
+            await kdu.IsConnectedWithTimeoutAsync();
+
+            KducerTighteningProgram pr = new KducerTighteningProgram();
+            pr.SetTorqueAngleMode(1);
+            pr.SetAngleTarget(1000);
+            pr.SetLeverErrorOnOff(true);
+            pr.SetNumberOfScrews(1);
+
+            await kdu.SendNewProgramDataAsync(1, pr);
+            await kdu.DisableScrewdriver();
+            await kdu.EnableScrewdriver();
+            bool[] bits = await kdu.GetCn3OutputBitsAsync();
+            Assert.IsTrue(bits.SequenceEqual([false, false, false, false, false, false, false, true]));
+            await kdu.DisableScrewdriver();
+            Assert.IsTrue((await kdu.GetCn3OutputBitsAsync())[6]);
+            await kdu.EnableScrewdriver();
+            Assert.IsFalse((await kdu.GetCn3OutputBitsAsync())[6]);
+            await kdu.RunScrewdriverUntilResultAsync(CancellationToken.None);
+            bits = await kdu.GetCn3OutputBitsAsync();
+            Assert.IsTrue(bits.SequenceEqual([false, false, true, false, true, false, false, true]));
         }
 
         [TestMethod]

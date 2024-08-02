@@ -757,6 +757,34 @@ namespace Kolver
         }
 
         /// <summary>
+        /// Reads the 8 status bits (first 8 modbus coils). These correspond to CN3 output pins 43 through 36:  [ LEVER, FORWARD MOTOR ON, SCREW OK, SCREW NOK, END PROGRAM, END SEQUENCE, STOP MOTOR, READY ]
+        /// </summary>
+        /// <returns>bool[8] array with the bit values: [ LEVER, FORWARD MOTOR ON, SCREW OK, SCREW NOK, END PROGRAM, END SEQUENCE, STOP MOTOR, READY ]
+        /// <exception cref="SocketException">If the KDU disconnected in the middle of processing the command</exception>
+        public async Task<bool[]> GetCn3OutputBitsAsync()
+        {
+            await WaitForKduMainboardVersion().ConfigureAwait(false);
+
+            KduUserCmdTaskAsync userCmdTask = new KduUserCmdTaskAsync(UserCmd.GetCoils, asyncCommsCts.Token);
+            await EnqueueAndWaitForUserCmdToBeProcessedInAsyncCommsLoopWithResultAsync(userCmdTask).ConfigureAwait(false);
+            return userCmdTask.bits;
+        }
+
+        /// <summary>
+        /// Reads the 20 input bits (first 20 modbus discrete inputs), these correspond to CN3 input pins 1 through 20
+        /// </summary>
+        /// <returns>bool[8] array with the bit values: [ LEVER, FORWARD MOTOR ON, SCREW OK, SCREW NOK, END PROGRAM, END SEQUENCE, STOP MOTOR, READY ]
+        /// <exception cref="SocketException">If the KDU disconnected in the middle of processing the command</exception>
+        public async Task<bool[]> GetCn3InputBitsAsync()
+        {
+            await WaitForKduMainboardVersion().ConfigureAwait(false);
+
+            KduUserCmdTaskAsync userCmdTask = new KduUserCmdTaskAsync(UserCmd.GetDiscreteInputs, asyncCommsCts.Token);
+            await EnqueueAndWaitForUserCmdToBeProcessedInAsyncCommsLoopWithResultAsync(userCmdTask).ConfigureAwait(false);
+            return userCmdTask.bits;
+        }
+
+        /// <summary>
         /// Writes the general settings data of the KDU controller
         /// </summary>
         /// <param name="writeInPermanentMemory">default false. use true only where necessary. not applicable for controllers v37 and earlier (ask kolver for a free update)</param>
@@ -892,7 +920,9 @@ namespace Kolver
             SendGeneralSettingsData,
             GetSettingsAndProgramsAndSequencesData,
             SendSettingsAndProgramsAndSequencesData,
-            SetSequenceOrProgramMode
+            SetSequenceOrProgramMode,
+            GetCoils,
+            GetDiscreteInputs
         }
 
         private class KduUserCmdTaskAsync
@@ -914,6 +944,7 @@ namespace Kolver
             internal string barcode;
             internal KducerControllerGeneralSettings generalSettings;
             internal Tuple<KducerControllerGeneralSettings, Dictionary<ushort, KducerTighteningProgram>, Dictionary<ushort, KducerSequenceOfTighteningPrograms>> settingsAndProgramsAndSequencesTuple;
+            internal bool[] bits;
 
             internal KduUserCmdTaskAsync(UserCmd cmd, CancellationToken cancellationToken, ushort payload = 0, bool replaceResultTimestampWithLocalTimestamp = true)
             {
@@ -1037,6 +1068,14 @@ namespace Kolver
 
                         case UserCmd.SetSequenceOrProgramMode:
                             await KduAsyncOperationTasks.SetSequenceOrProgramMode(mbClient, payload, kduVersion, cancellationToken).ConfigureAwait(false);
+                            break;
+
+                        case UserCmd.GetCoils:
+                            bits = await mbClient.ReadCoilsAsync(0, 8).ConfigureAwait(false);
+                            break;
+
+                        case UserCmd.GetDiscreteInputs:
+                            bits = await mbClient.ReadDiscreteInputsAsync(0, 20).ConfigureAwait(false);
                             break;
                     }
                 }

@@ -307,6 +307,59 @@ namespace Kolver
 
             return;
         }
+
+        private async Task<bool[]> ReadBitsAsync(byte fc, ushort address, ushort numberOfBits)
+        {
+            byte[] mbRequest = new byte[12];
+            // Transaction ID (2 bytes), Protocol ID (2 bytes), Length (2 bytes), Unit ID (1 byte), Function Code (1 byte), Address (2 bytes), Quantity (2 bytes)
+
+            mbRequest[5] = 6; // Length
+            mbRequest[7] = fc;// 1 = read coils, 2 = read discrete inputs
+
+            ModbusByteConversions.CopyUshortToBytesAsModbusBigendian(address, mbRequest, 8);
+
+            ModbusByteConversions.CopyUshortToBytesAsModbusBigendian(numberOfBits, mbRequest, 10);
+
+            int expectedResponseLength = 1/*uID*/ + 1/*FC*/ + 1/*byteCnt*/ + ((numberOfBits + 7) / 8)/*bits as bytes*/;
+
+            // Send modbus request
+            await SendAllAsync(kduSock, mbRequest).ConfigureAwait(false); ;
+
+            // Receive modbus mbap (header)
+            byte[] responseMbap = await ReceiveAllAsync(kduSock, 7).ConfigureAwait(false); ;
+            // Verify
+            ThrowIfBadMbap(responseMbap, responseMbap, expectedResponseLength);
+
+            int nBytesToRecieve = ModbusByteConversions.TwoModbusBigendianBytesToUshort(responseMbap, 4) - 1;
+
+            // Receive modbus response data
+            byte[] responseData = await ReceiveAllAsync(kduSock, nBytesToRecieve).ConfigureAwait(false);
+            // Verify
+            ThrowIfBadResponse(mbRequest, responseData, expectedResponseLength);
+
+            // Extract and return
+            bool[] data = new bool[numberOfBits];
+            int bitIdx = 0;
+            for (int i = 0; i < (responseData.Length - 2) && bitIdx < numberOfBits; i++)
+            {
+                for (int bitInByteIdx = 0; bitInByteIdx < 8 && bitIdx < numberOfBits; bitInByteIdx++)
+                {
+                    data[bitIdx] = (responseData[2 + i] & (1 << bitInByteIdx)) != 0;
+                    bitIdx++;
+                }
+            }
+            return data;
+        }
+
+        public async Task<bool[]> ReadCoilsAsync(ushort startAddress, ushort numberOfCoils)
+        {
+            return await ReadBitsAsync(1/*read coils*/, startAddress, numberOfCoils).ConfigureAwait(false);
+        }
+
+        public async Task<bool[]> ReadDiscreteInputsAsync(ushort startAddress, ushort numberOfDiscreteInputs)
+        {
+            return await ReadBitsAsync(2/*read DI*/, startAddress, numberOfDiscreteInputs).ConfigureAwait(false);
+        }
     }
     /// <summary>
     /// represents a Modbus Exception
