@@ -14,17 +14,19 @@ namespace Kolver
     /// </summary>
     public class KducerControllerGeneralSettings
     {
-        private readonly static byte[] defaultControllerSettingsForKdu1a = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 84, 79, 82, 81, 85, 69, 32, 83, 84, 65, 84, 73, 79, 78, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 7, 161, 32, 0, 0, 0, 0 };
+        private readonly static byte[] defaultControllerSettingsForKdu1a = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 84, 79, 82, 81, 85, 69, 32, 83, 84, 65, 84, 73, 79, 78, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 7, 161, 32, 0, 0, 0, 0, 0, 0, 0, 0 };
 
-        private readonly byte[] controllerGeneralSettingsHoldingRegistersAsByteArray = new byte[88];
+        private readonly byte[] controllerGeneralSettingsHoldingRegistersAsByteArray = new byte[92];
         /// <summary>
-        /// the byte array returned can be sent to the KDU-1A to modify the general settings
+        /// the byte array returned can be sent to the KDU-1A to modify the general settings* ,
         /// the byte array can also be used to serialize these settings
+        /// *note: for KDU-1A v40+, bytes[88:] are not consecutive with bytes[0:88] in the actual Modbus Map. The Kducer class accounts for this automatically.
         /// </summary>
         /// <returns>the 44 modbus holding registers representing the general settings</returns>
         public byte[] getGeneralSettingsModbusHoldingRegistersAsByteArray() { return controllerGeneralSettingsHoldingRegistersAsByteArray; }
 
-        internal byte[] getGeneralSettingsModbusHoldingRegistersAsByteArray_KDUv39() { return controllerGeneralSettingsHoldingRegistersAsByteArray; }
+        internal byte[] getGeneralSettingsModbusHoldingRegistersAsByteArray_KDUv40_SecondTrancheOnly() { return new ArraySegment<byte>(controllerGeneralSettingsHoldingRegistersAsByteArray, 88, 4).ToArray<byte>(); }
+        internal byte[] getGeneralSettingsModbusHoldingRegistersAsByteArray_KDUv39() { return new ArraySegment<byte>(controllerGeneralSettingsHoldingRegistersAsByteArray, 0, 88).ToArray<byte>(); }
         internal byte[] getGeneralSettingsModbusHoldingRegistersAsByteArray_KDUv38() { return new ArraySegment<byte>(controllerGeneralSettingsHoldingRegistersAsByteArray, 0, 86).ToArray<byte>(); }
         internal byte[] getGeneralSettingsModbusHoldingRegistersAsByteArray_KDUv37andPrior() { return new ArraySegment<byte>(controllerGeneralSettingsHoldingRegistersAsByteArray, 0, 78).ToArray<byte>(); }
 
@@ -36,8 +38,8 @@ namespace Kolver
         {
             if (controllerGeneralSettingsHoldingRegistersAsByteArray == null)
                 throw new ArgumentNullException(nameof(controllerGeneralSettingsHoldingRegistersAsByteArray));
-            if (controllerGeneralSettingsHoldingRegistersAsByteArray.Length < 78 || controllerGeneralSettingsHoldingRegistersAsByteArray.Length > 88)
-                throw new ArgumentException("Expected length is 78 to 88 bytes", nameof(controllerGeneralSettingsHoldingRegistersAsByteArray));
+            if (controllerGeneralSettingsHoldingRegistersAsByteArray.Length < 78 || controllerGeneralSettingsHoldingRegistersAsByteArray.Length > 92)
+                throw new ArgumentException("Expected length is 78 to 92 bytes", nameof(controllerGeneralSettingsHoldingRegistersAsByteArray));
 
             controllerGeneralSettingsHoldingRegistersAsByteArray.CopyTo(this.controllerGeneralSettingsHoldingRegistersAsByteArray, 0);
         }
@@ -180,16 +182,16 @@ namespace Kolver
                 throw new ArgumentException("1 to 200", nameof(program));
             ModbusByteConversions.CopyUshortToBytesAsModbusBigendian(program, controllerGeneralSettingsHoldingRegistersAsByteArray, 22);
         }
-        /// <summary>0 = Nm, 1= kgf.cm, 2 = lbf.in, 3 = ozf.in</summary>
+        /// <summary>0 = Nm, 1= kgf.cm, 2 = lbf.in, 3 = ozf.in, 4 = lbf.ft (KDU v40 only)</summary>
         public ushort GetTorqueUnits()
         {
             return ModbusByteConversions.TwoModbusBigendianBytesToUshort(controllerGeneralSettingsHoldingRegistersAsByteArray, 24);
         }
-        /// <summary>0 = Nm, 1= kgf.cm, 2 = lbf.in, 3 = ozf.in</summary>
+        /// <summary>0 = Nm, 1= kgf.cm, 2 = lbf.in, 3 = ozf.in, 4 = lbf.ft (KDU v40 only)</summary>
         public void SetTorqueUnits(ushort units)
         {
-            if (units > 3)
-                throw new ArgumentException("1 to 200", nameof(units));
+            if (units > 4)
+                throw new ArgumentException("0 = Nm, 1= kgf.cm, 2 = lbf.in, 3 = ozf.in, 4 = lbf.ft (4 on KDU v40 and newer only)", nameof(units));
             ModbusByteConversions.CopyUshortToBytesAsModbusBigendian(units, controllerGeneralSettingsHoldingRegistersAsByteArray, 24);
         }
         /// <summary>false = sequence mode is off, true = sequence mode is on</summary>
@@ -351,6 +353,30 @@ namespace Kolver
             if (mode > 6)
                 throw new ArgumentException("0 = binary (default), 1 = discrete, 2..6 = pnp sens x2 .. x6 for tool change accessory (PNP sensors) when connected to CN3", nameof(mode));
             ModbusByteConversions.CopyUshortToBytesAsModbusBigendian(mode, controllerGeneralSettingsHoldingRegistersAsByteArray, 86);
+        }
+        /// <summary>For KTLS smart positioning arm. 0 = Off, 1 = LINAR, 2 = LINAR-T, 3 = CAR, 4 = SAR</summary>
+        public ushort GetKtlsArm1Model()
+        {
+            return ModbusByteConversions.TwoModbusBigendianBytesToUshort(controllerGeneralSettingsHoldingRegistersAsByteArray, 88);
+        }
+        /// <summary>For KTLS smart positioning arm. 0 = Off, 1 = LINAR, 2 = LINAR-T, 3 = CAR, 4 = SAR</summary>
+        public void SetKtlsArm1Model(ushort ktlsArmModel)
+        {
+            if (ktlsArmModel > 4)
+                throw new ArgumentException("0 = Off, 1 = LINAR, 2 = LINAR-T, 3 = CAR, 4 = SAR", nameof(ktlsArmModel));
+            ModbusByteConversions.CopyUshortToBytesAsModbusBigendian(ktlsArmModel, controllerGeneralSettingsHoldingRegistersAsByteArray, 88);
+        }
+        /// <summary>For KTLS second smart positioning arm with Dock-05 only. 0 = Off, 1 = LINAR, 2 = LINAR-T, 3 = CAR, 4 = SAR. Not all combinations of arm1 and arm2 are valid.</summary>
+        public ushort GetKtlsArm2Model()
+        {
+            return ModbusByteConversions.TwoModbusBigendianBytesToUshort(controllerGeneralSettingsHoldingRegistersAsByteArray, 90);
+        }
+        /// <summary>For KTLS second smart positioning arm with Dock-05 only. 0 = Off, 1 = LINAR, 2 = LINAR-T, 3 = CAR, 4 = SAR. Not all combinations of arm1 and arm2 are valid.</summary>
+        public void SetKtlsArm2Model(ushort ktlsArmModel)
+        {
+            if (ktlsArmModel > 4)
+                throw new ArgumentException("0 = Off, 1 = LINAR, 2 = LINAR-T, 3 = CAR, 4 = SAR", nameof(ktlsArmModel));
+            ModbusByteConversions.CopyUshortToBytesAsModbusBigendian(ktlsArmModel, controllerGeneralSettingsHoldingRegistersAsByteArray, 90);
         }
 
         private void SetMiscConfBit(int confBitIdx, bool bitState)

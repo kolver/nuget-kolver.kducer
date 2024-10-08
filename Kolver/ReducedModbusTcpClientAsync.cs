@@ -28,7 +28,7 @@ namespace Kolver
                 SendTimeout = rxTxTimeoutMs,
                 ReceiveTimeout = rxTxTimeoutMs,
                 LingerState = new LingerOption(true, 0),
-                ReceiveBufferSize = 1024,
+                ReceiveBufferSize = 131072, // increased to support non-modbus RX of high resolution graphs and configuration settings
                 SendBufferSize = 1024,
                 ExclusiveAddressUse = true,
                 NoDelay = true
@@ -359,6 +359,11 @@ namespace Kolver
         public async Task<bool[]> ReadDiscreteInputsAsync(ushort startAddress, ushort numberOfDiscreteInputs)
         {
             return await ReadBitsAsync(2/*read DI*/, startAddress, numberOfDiscreteInputs).ConfigureAwait(false);
+        }
+
+        internal async Task<byte[]> SocketExposed_ReceiveAllAsync(int length)
+        {
+            return await ReceiveAllAsync(kduSock, length).ConfigureAwait(false);
         }
     }
     /// <summary>

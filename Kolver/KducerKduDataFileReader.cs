@@ -45,10 +45,15 @@ namespace Kolver
             if (data[0] < 0x09)
                 throw new InvalidDataException($"{filePath} does not appear to be a valid kdu file originating from KDU-1A v36 or newer");
 
+            return ParseKduConfBytes(data);
+        }
+
+        internal static Tuple<KducerControllerGeneralSettings, Dictionary<ushort, KducerTighteningProgram>, Dictionary<ushort, KducerSequenceOfTighteningPrograms>> ParseKduConfBytes(byte[] data)
+        {
             // read settings
             KducerControllerGeneralSettings settings = new KducerControllerGeneralSettings();
-            settings.SetLanguage(ReadUshortFromFile(data, 30));
-            settings.SetPassword(ReadUshortFromFile(data, 33));
+            settings.SetLanguage(ReadUshortFromBytes(data, 30));
+            settings.SetPassword(ReadUshortFromBytes(data, 33));
             settings.SetPasswordOnOff(data[37] == 1);
             settings.SetCmdOkEscResetSource(data[38]);
             settings.SetRemoteProgramSource(data[39]);
@@ -60,15 +65,17 @@ namespace Kolver
             settings.SetFastDock05ModeOnOff(data[111] == 1);
             settings.SetBuzzerSoundsOnOff(data[112] == 1);
             settings.SetResultsFormat(data[113]);
-            settings.SetStationName(ReadStringFromFile(data, 114, 25));
+            settings.SetStationName(ReadStringFromBytes(data, 114, 25));
             settings.SetCalibrationReminderMode(data[139]);
-            settings.SetCalibrationReminderInterval(ReadUintFromFile(data, 140));
+            settings.SetCalibrationReminderInterval(ReadUintFromBytes(data, 140));
             settings.SetLockIfUsbNotConnectedOnOff(data[145] == 1);
             settings.SetInvertLogicCn3InStopOnOff(data[146] == 1);
             settings.SetInvertLogicCn3InPieceOnOff(data[147] == 1);
             settings.SetSkipScrewButtonOnOff(data[148] == 1);
             settings.SetShowReverseTorqueAndAngleOnOff(data[149] == 1);
             settings.SetCn3BitxPrSeqInputSelectionMode(data[150]);
+            settings.SetKtlsArm1Model((byte)(data[151] & 0xF));
+            settings.SetKtlsArm1Model((byte)(data[151] >> 4));
 
             // read sequences
             int seqLen = 32;
@@ -95,7 +102,7 @@ namespace Kolver
                 linkTimes = Enumerable.Repeat<byte>(3, seqLen).ToList();
                 progs[0] = 1;
 
-                string seqBarcode = ReadStringFromFile(data, 224 + seqIdx * seqChunkLen, 16);
+                string seqBarcode = ReadStringFromBytes(data, 224 + seqIdx * seqChunkLen, 16);
                 int baseIdx = 224 + seqIdx * seqChunkLen + seqSkipLen + 16;
                 for (int progIdx = 0; progIdx < seqLen; progIdx++)
                 {
@@ -123,16 +130,16 @@ namespace Kolver
             for (ushort progIdx = 0; progIdx < numProgs; progIdx++)
             {
                 KducerTighteningProgram prog = new KducerTighteningProgram(new byte[230]);
-                prog.SetTorqueTarget(ReadUshortFromFile(data, firstProgIdx + 224 * progIdx + 0));
-                prog.SetTorqueMax(ReadUshortFromFile(data, firstProgIdx + 224 * progIdx + 4));
-                prog.SetTorqueMin(ReadUshortFromFile(data, firstProgIdx + 224 * progIdx + 8));
-                prog.SetAngleTarget(ReadUshortFromFile(data, firstProgIdx + 224 * progIdx + 12));
-                prog.SetAngleMax(ReadUshortFromFile(data, firstProgIdx + 224 * progIdx + 16));
-                prog.SetAngleMin(ReadUshortFromFile(data, firstProgIdx + 224 * progIdx + 20));
-                prog.SetAngleStartAt(ReadUshortFromFile(data, firstProgIdx + 224 * progIdx + 24));
-                prog.SetFinalSpeed(ReadUshortFromFile(data, firstProgIdx + 224 * progIdx + 28));
-                prog.SetDownshiftInitialSpeed(ReadUshortFromFile(data, firstProgIdx + 224 * progIdx + 32));
-                prog.SetDownshiftThreshold(ReadUshortFromFile(data, firstProgIdx + 224 * progIdx + 36));
+                prog.SetTorqueTarget(ReadUshortFromBytes(data, firstProgIdx + 224 * progIdx + 0));
+                prog.SetTorqueMax(ReadUshortFromBytes(data, firstProgIdx + 224 * progIdx + 4));
+                prog.SetTorqueMin(ReadUshortFromBytes(data, firstProgIdx + 224 * progIdx + 8));
+                prog.SetAngleTarget(ReadUshortFromBytes(data, firstProgIdx + 224 * progIdx + 12));
+                prog.SetAngleMax(ReadUshortFromBytes(data, firstProgIdx + 224 * progIdx + 16));
+                prog.SetAngleMin(ReadUshortFromBytes(data, firstProgIdx + 224 * progIdx + 20));
+                prog.SetAngleStartAt(ReadUshortFromBytes(data, firstProgIdx + 224 * progIdx + 24));
+                prog.SetFinalSpeed(ReadUshortFromBytes(data, firstProgIdx + 224 * progIdx + 28));
+                prog.SetDownshiftInitialSpeed(ReadUshortFromBytes(data, firstProgIdx + 224 * progIdx + 32));
+                prog.SetDownshiftThreshold(ReadUshortFromBytes(data, firstProgIdx + 224 * progIdx + 36));
                 prog.SetTorqueAngleMode(data[firstProgIdx + 224 * progIdx + 40]);
                 prog.SetDownshiftAtTorqueOnOff(data[firstProgIdx + 224 * progIdx + 41] >= 1);
                 prog.SetDownshiftAtAngleOnOff(data[firstProgIdx + 224 * progIdx + 41] == 2);
@@ -141,40 +148,44 @@ namespace Kolver
                 prog.SetRunTimeOnOff(data[firstProgIdx + 224 * progIdx + 44] == 1);
                 prog.SetMinTimeOnOff(data[firstProgIdx + 224 * progIdx + 45] == 1);
                 prog.SetMaxTimeOnOff(data[firstProgIdx + 224 * progIdx + 46] == 1);
-                prog.SetRamp(ReadUshortFromFile(data, firstProgIdx + 224 * progIdx + 47));
-                prog.SetRuntime(ReadUshortFromFile(data, firstProgIdx + 224 * progIdx + 51));
-                prog.SetMintime(ReadUshortFromFile(data, firstProgIdx + 224 * progIdx + 55));
-                prog.SetMaxtime(ReadUshortFromFile(data, firstProgIdx + 224 * progIdx + 59));
+                prog.SetRamp(ReadUshortFromBytes(data, firstProgIdx + 224 * progIdx + 47));
+                prog.SetRuntime(ReadUshortFromBytes(data, firstProgIdx + 224 * progIdx + 51));
+                prog.SetMintime(ReadUshortFromBytes(data, firstProgIdx + 224 * progIdx + 55));
+                prog.SetMaxtime(ReadUshortFromBytes(data, firstProgIdx + 224 * progIdx + 59));
                 prog.SetMaxPowerPhaseMode(data[firstProgIdx + 224 * progIdx + 63]);
-                prog.SetMaxPowerPhaseTime(ReadUshortFromFile(data, firstProgIdx + 224 * progIdx + 64));
-                prog.SetMaxPowerPhaseAngle(ReadUshortFromFile(data, firstProgIdx + 224 * progIdx + 68));
-                prog.SetReverseSpeed(ReadUshortFromFile(data, firstProgIdx + 224 * progIdx + 72));
-                prog.SetMaxReverseTorque(ReadUshortFromFile(data, firstProgIdx + 224 * progIdx + 76));
+                prog.SetMaxPowerPhaseTime(ReadUshortFromBytes(data, firstProgIdx + 224 * progIdx + 64));
+                prog.SetMaxPowerPhaseAngle(ReadUshortFromBytes(data, firstProgIdx + 224 * progIdx + 68));
+                prog.SetReverseSpeed(ReadUshortFromBytes(data, firstProgIdx + 224 * progIdx + 72));
+                prog.SetMaxReverseTorque(ReadUshortFromBytes(data, firstProgIdx + 224 * progIdx + 76));
                 prog.SetPreTighteningReverseMode(data[firstProgIdx + 224 * progIdx + 80]);
-                prog.SetPreTighteningReverseTime(ReadUshortFromFile(data, firstProgIdx + 224 * progIdx + 81));
-                prog.SetPreTighteningReverseAngle(ReadUshortFromFile(data, firstProgIdx + 224 * progIdx + 85));
-                prog.SetPreTighteningReverseDelay(ReadUshortFromFile(data, firstProgIdx + 224 * progIdx + 89));
+                prog.SetPreTighteningReverseTime(ReadUshortFromBytes(data, firstProgIdx + 224 * progIdx + 81));
+                prog.SetPreTighteningReverseAngle(ReadUshortFromBytes(data, firstProgIdx + 224 * progIdx + 85));
+                prog.SetPreTighteningReverseDelay(ReadUshortFromBytes(data, firstProgIdx + 224 * progIdx + 89));
                 prog.SetAfterTighteningReverseMode(data[firstProgIdx + 224 * progIdx + 94]);
-                prog.SetAfterTighteningReverseTime(ReadUshortFromFile(data, firstProgIdx + 224 * progIdx + 95));
-                prog.SetAfterTighteningReverseAngle(ReadUshortFromFile(data, firstProgIdx + 224 * progIdx + 99));
-                prog.SetAfterTighteningReverseDelay(ReadUshortFromFile(data, firstProgIdx + 224 * progIdx + 106));
+                prog.SetAfterTighteningReverseTime(ReadUshortFromBytes(data, firstProgIdx + 224 * progIdx + 95));
+                prog.SetAfterTighteningReverseAngle(ReadUshortFromBytes(data, firstProgIdx + 224 * progIdx + 99));
+                prog.SetKtlsSensor1Tolerance(data[firstProgIdx + 224 * progIdx + 103]);
+                prog.SetKtlsSensor2Tolerance(data[firstProgIdx + 224 * progIdx + 104]);
+                prog.SetKtlsSensor3Tolerance(data[firstProgIdx + 224 * progIdx + 105]);
+                prog.SetAfterTighteningReverseDelay(ReadUshortFromBytes(data, firstProgIdx + 224 * progIdx + 106));
                 prog.SetSerialPrintOnOff(data[firstProgIdx + 224 * progIdx + 111] == 1);
+                prog.SetSubstituteTorqueUnits((byte)(data[firstProgIdx + 224 * progIdx + 112] >> 4));
                 prog.SetUseDock05Screwdriver2OnOff(data[firstProgIdx + 224 * progIdx + 113] == 1);
-                prog.SetBarcode(ReadStringFromFile(data, firstProgIdx + 224 * progIdx + 117, 16));
+                prog.SetBarcode(ReadStringFromBytes(data, firstProgIdx + 224 * progIdx + 117, 16));
                 prog.SetSocket(data[firstProgIdx + 224 * progIdx + 133]);
                 prog.SetPressOkOnOff(data[firstProgIdx + 224 * progIdx + 137] == 1);
                 prog.SetPressEscOnOff(data[firstProgIdx + 224 * progIdx + 138] == 1);
                 prog.SetLeverErrorOnOff(data[firstProgIdx + 224 * progIdx + 139] == 1);
                 prog.SetReverseAllowedOnOff(data[firstProgIdx + 224 * progIdx + 140] == 1);
                 prog.SetCounterclockwiseTighteningOnOff(data[firstProgIdx + 224 * progIdx + 141] == 1);
-                prog.SetNumberOfScrews(ReadUshortFromFile(data, firstProgIdx + 224 * progIdx + 142));
-                prog.SetDescription(ReadStringFromFile(data, firstProgIdx + 224 * progIdx + 146, 30));
-                prog.SetTorqueCompensationValue(ReadUshortFromFile(data, firstProgIdx + 224 * progIdx + 176));
+                prog.SetNumberOfScrews(ReadUshortFromBytes(data, firstProgIdx + 224 * progIdx + 142));
+                prog.SetDescription(ReadStringFromBytes(data, firstProgIdx + 224 * progIdx + 146, 30));
+                prog.SetTorqueCompensationValue(ReadUshortFromBytes(data, firstProgIdx + 224 * progIdx + 176));
                 prog.SetRunningTorqueMode(data[firstProgIdx + 224 * progIdx + 180]);
-                prog.SetRunningTorqueWindowStart(ReadUshortFromFile(data, firstProgIdx + 224 * progIdx + 181));
-                prog.SetRunningTorqueWindowEnd(ReadUshortFromFile(data, firstProgIdx + 224 * progIdx + 183));
-                prog.SetRunningTorqueMin(ReadUshortFromFile(data, firstProgIdx + 224 * progIdx + 185));
-                prog.SetRunningTorqueMax(ReadUshortFromFile(data, firstProgIdx + 224 * progIdx + 189));
+                prog.SetRunningTorqueWindowStart(ReadUshortFromBytes(data, firstProgIdx + 224 * progIdx + 181));
+                prog.SetRunningTorqueWindowEnd(ReadUshortFromBytes(data, firstProgIdx + 224 * progIdx + 183));
+                prog.SetRunningTorqueMin(ReadUshortFromBytes(data, firstProgIdx + 224 * progIdx + 185));
+                prog.SetRunningTorqueMax(ReadUshortFromBytes(data, firstProgIdx + 224 * progIdx + 189));
                 progDict.Add((ushort)(progIdx + 1), prog);
             }
 
@@ -185,7 +196,7 @@ namespace Kolver
             return new Tuple<KducerControllerGeneralSettings, Dictionary<ushort, KducerTighteningProgram>, Dictionary<ushort, KducerSequenceOfTighteningPrograms>>(settings, progDict, seqDict);
         }
 
-        private static ushort ReadUshortFromFile(byte[] source, int index)
+        private static ushort ReadUshortFromBytes(byte[] source, int index)
         {
             if (BitConverter.IsLittleEndian)
                 return (ushort)(source[index] | (source[index + 1] << 8));
@@ -193,7 +204,7 @@ namespace Kolver
                 return (ushort)((source[index] << 8) | source[index + 1]);
         }
 
-        private static uint ReadUintFromFile(byte[] source, int index)
+        private static uint ReadUintFromBytes(byte[] source, int index)
         {
             if (BitConverter.IsLittleEndian)
                 return (uint)((source[index]) |
@@ -207,7 +218,7 @@ namespace Kolver
                        source[index + 3]);
         }
 
-        private static string ReadStringFromFile(byte[] source, int index, int count)
+        private static string ReadStringFromBytes(byte[] source, int index, int count)
         {
             char[] stringchars = Encoding.ASCII.GetChars(source, index, count);
             return new string(stringchars);

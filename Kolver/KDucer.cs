@@ -34,6 +34,7 @@ namespace Kolver
         private static readonly (ushort addr, ushort count) IR_TORQUEGRAPH_DATA = (152, 71);
         private static readonly (ushort addr, ushort count) IR_ANGLEGRAPH_DATA = (223, 71);
         private static readonly (ushort addr, ushort count) IR_CONTROLLER_SOFTWARE_VERSION = (370, 10);
+        private static readonly (ushort addr, ushort count) IR_KTLS_POSITIONS = (393, 9);
         private const ushort COIL_STOP_MOTOR = 34;
         private const ushort COIL_REMOTE_LEVER = 32;
         private const ushort HR_PROGRAM_NR = 7372;
@@ -47,6 +48,9 @@ namespace Kolver
         private const ushort HR_SEQUENCE_PROGRAM_MODE = 7374;
         private const ushort HR_PERMANENT_MEMORY_REPROGRAM = 7789;
         private const ushort HR_BARCODE = 7379;
+        private const ushort HR_SPECIAL_RXALLCONFDATA = 8016;
+        private const ushort HR_GENERALSETTINGS_ADDITIONAL_V40 = 8026;
+        private const ushort HR_SPECIAL_EXTENDEDGRAPHS = 8015;
 
         private readonly ILogger kduLogger;
         private readonly IPAddress kduIpAddress;
@@ -219,6 +223,11 @@ namespace Kolver
                     byte[] kduVersion = await mbClient.ReadInputRegistersAsync(IR_CONTROLLER_SOFTWARE_VERSION.addr, IR_CONTROLLER_SOFTWARE_VERSION.count).ConfigureAwait(false);
                     string kduVersionStr = ModbusByteConversions.ModbusBytesToAsciiString(kduVersion, 0, 20);
                     kduSoftwareVersion = ushort.Parse(kduVersionStr.Split('.')[3].Substring(0,2)); // "KDU-1A vM.00.38" => 38
+
+                    if (kduSoftwareVersion == 38 || kduSoftwareVersion == 39)
+                    {
+                        await mbClient.WriteSingleRegisterAsync(HR_SPECIAL_EXTENDEDGRAPHS, 0).ConfigureAwait(false);  // disable extended graphs, not needed in other KDU versions
+                    }
 
                     await mbClient.ReadInputRegistersAsync(IR_NEW_RESULT_SELFCLEARING_FLAG, 1).ConfigureAwait(false); // clear new result flag if already present
 
@@ -488,7 +497,8 @@ namespace Kolver
         {
             await WaitForKduMainboardVersion().ConfigureAwait(false);
 
-            KduUserCmdTaskAsync userCmdTask = new KduUserCmdTaskAsync(UserCmd.GetAllTighteningProgramsData, asyncCommsCts.Token, kduSoftwareVersion);
+            KduUserCmdTaskAsync userCmdTask = new KduUserCmdTaskAsync(UserCmd.GetAllTighteningProgramsData, asyncCommsCts.Token);
+            userCmdTask.kduVersion = kduSoftwareVersion;
             await EnqueueAndWaitForUserCmdToBeProcessedInAsyncCommsLoopWithResultAsync(userCmdTask).ConfigureAwait(false);
             return userCmdTask.multipleTighteningPrograms;
         }
@@ -869,6 +879,31 @@ namespace Kolver
             await EnqueueAndWaitForUserCmdToBeProcessedInAsyncCommsLoopAsync(userCmdTask).ConfigureAwait(false);
         }
 
+        /// <summary>
+        /// Reads the real time positions and the stored target position for the next screwof the K-TLS arm
+        /// </summary>
+        /// <returns> Tuple of (ushort[3], ushort[3], ushort[3]). First array contains the positions of Arm 1. Second array contains the positions of Arm 2. Third array contains the target positions for the next screw, if saved. A value of 65535 (0xFFFF) indicates an invalid value (sensor not connected or position not memorized). The units are mm for length, tenths of degrees for angles.</returns>
+        /// <exception cref="SocketException">If the KDU disconnected in the middle of processing the command</exception>
+        /// <exception cref="InvalidOperationException">if KDU version is < 40, as K-TLS support was introduced with KDU v40</exception>
+        public async Task<Tuple<ushort[], ushort[], ushort[]>> GetKtlsPositionsAsync()
+        {
+            await WaitForKduMainboardVersion().ConfigureAwait(false);
+            if (kduSoftwareVersion < 40)
+                throw new InvalidOperationException($"KDU version is {kduSoftwareVersion}, update to version 40 or newer to get K-TLS functionality.");
+            KduUserCmdTaskAsync userCmdTask = new KduUserCmdTaskAsync(UserCmd.GetKtlsPositions, asyncCommsCts.Token);
+            await EnqueueAndWaitForUserCmdToBeProcessedInAsyncCommsLoopWithResultAsync(userCmdTask).ConfigureAwait(false);
+            ushort[] arm1Positions = new ushort[3];
+            ushort[] arm2Positions = new ushort[3];
+            ushort[] targetPositions = new ushort[3];
+            for (int i = 0; i < 3; i++)
+            {
+                arm1Positions[i] = userCmdTask.ktlsPositions[i];
+                arm2Positions[i] = userCmdTask.ktlsPositions[i + 3];
+                targetPositions[i] = userCmdTask.ktlsPositions[i + 6];
+            }
+            return new Tuple<ushort[],ushort[],ushort[]>(arm1Positions, arm2Positions, targetPositions);
+        }
+
         private async Task EnqueueAndWaitForUserCmdToBeProcessedInAsyncCommsLoopAsync(KduUserCmdTaskAsync userCmdTask)
         {
             userCmdTaskQueue.Enqueue(userCmdTask);
@@ -922,7 +957,8 @@ namespace Kolver
             SendSettingsAndProgramsAndSequencesData,
             SetSequenceOrProgramMode,
             GetCoils,
-            GetDiscreteInputs
+            GetDiscreteInputs,
+            GetKtlsPositions
         }
 
         private class KduUserCmdTaskAsync
@@ -945,6 +981,7 @@ namespace Kolver
             internal KducerControllerGeneralSettings generalSettings;
             internal Tuple<KducerControllerGeneralSettings, Dictionary<ushort, KducerTighteningProgram>, Dictionary<ushort, KducerSequenceOfTighteningPrograms>> settingsAndProgramsAndSequencesTuple;
             internal bool[] bits;
+            internal ushort[] ktlsPositions;
 
             internal KduUserCmdTaskAsync(UserCmd cmd, CancellationToken cancellationToken, ushort payload = 0, bool replaceResultTimestampWithLocalTimestamp = true)
             {
@@ -999,7 +1036,9 @@ namespace Kolver
                             break;
 
                         case UserCmd.GetAllTighteningProgramsData:
-                            multipleTighteningPrograms = await KduAsyncOperationTasks.GetAllProgramsData(mbClient, payload, cancellationToken).ConfigureAwait(false);
+                            multipleTighteningPrograms = await KduAsyncOperationTasks.GetAllProgramsData(mbClient, kduVersion, cancellationToken).ConfigureAwait(false);
+                            if (kduVersion == 38 || kduVersion == 39)
+                                await Task.Delay(PR_SEQ_CHANGE_WAIT, cancellationToken).ConfigureAwait(false);
                             break;
 
                         case UserCmd.SendTighteningProgramDataV37:
@@ -1048,6 +1087,8 @@ namespace Kolver
 
                         case UserCmd.GetAllSequencesData:
                             multipleSequences = await KduAsyncOperationTasks.GetAllSequencesData(mbClient, kduVersion, cancellationToken).ConfigureAwait(false);
+                            if (kduVersion == 38 || kduVersion == 39)
+                                await Task.Delay(PR_SEQ_CHANGE_WAIT, cancellationToken).ConfigureAwait(false);
                             break;
 
                         case UserCmd.GetGeneralSettingsData:
@@ -1076,6 +1117,10 @@ namespace Kolver
 
                         case UserCmd.GetDiscreteInputs:
                             bits = await mbClient.ReadDiscreteInputsAsync(0, 20).ConfigureAwait(false);
+                            break;
+
+                        case UserCmd.GetKtlsPositions:
+                            ktlsPositions = await KduAsyncOperationTasks.GetKtlsPositions(mbClient).ConfigureAwait(false);
                             break;
                     }
                 }
@@ -1138,7 +1183,7 @@ namespace Kolver
                 await mbClient.WriteSingleRegisterAsync(Kducer.HR_PROGRAM_NR, prNr).ConfigureAwait(false);
                 await Task.Delay(PR_SEQ_CHANGE_WAIT, cancellationToken).ConfigureAwait(false);
                 if ((await mbClient.ReadHoldingRegistersAsync(Kducer.HR_PROGRAM_NR, 1).ConfigureAwait(false))[1] != prNr)
-                    throw new InvalidOperationException("Program selection failed. Is the KDU \"REMOTE PROG\" setting set to \"CN5 TCP\"?");    // this only happens in KDU v37 and prior (without a corresponding modbus exception)
+                    throw new InvalidOperationException("Program selection failed. Make sure the KDU is not in SEQUENCE mode and the KDU \"REMOTE PROG\" setting is set to \"CN5 TCP\"");    // this only happens in KDU v37 and prior (without a corresponding modbus exception)
             }
 
             internal static async Task<ushort> GetActiveSequenceNumber(ReducedModbusTcpClientAsync mbClient)
@@ -1154,7 +1199,7 @@ namespace Kolver
                 await mbClient.WriteSingleRegisterAsync(Kducer.HR_SEQUENCE_NR, seqNr).ConfigureAwait(false);
                 await Task.Delay(PR_SEQ_CHANGE_WAIT, cancellationToken).ConfigureAwait(false);
                 if ((await mbClient.ReadHoldingRegistersAsync(Kducer.HR_SEQUENCE_NR, 1).ConfigureAwait(false))[1] != seqNr)
-                    throw new InvalidOperationException("Sequence selection failed. Is the KDU \"REMOTE SEQ\" setting set to \"CN5 TCP\"?");    // this only happens in KDU v37 and prior (without a corresponding modbus exception)
+                    throw new InvalidOperationException("Sequence selection failed. Make sure the KDU is in SEQUENCE mode and the KDU \"REMOTE SEQ\" setting set to \"CN5 TCP\"");    // this only happens in KDU v37 and prior (without a corresponding modbus exception)
             }
 
             internal static async Task SetSequenceOrProgramMode(ReducedModbusTcpClientAsync mbClient, ushort mode, ushort kduVersion, CancellationToken cancellationToken)
@@ -1293,36 +1338,42 @@ namespace Kolver
 
             internal static async Task<Dictionary<ushort, KducerTighteningProgram>> GetAllProgramsData(ReducedModbusTcpClientAsync mbClient, ushort kduVersion, CancellationToken cancellationToken)
             {
-                Dictionary<ushort, KducerTighteningProgram> allTighteningPrograms = new Dictionary<ushort, KducerTighteningProgram>();
+                Dictionary<ushort, KducerTighteningProgram> allTighteningPrograms;
 
                 if (kduVersion < 38)
                 {
+                    allTighteningPrograms = new Dictionary<ushort, KducerTighteningProgram>();
                     for (ushort programNumber = 1; programNumber <= 64; programNumber++)
                     {
                         allTighteningPrograms.Add(programNumber, new KducerTighteningProgram(await mbClient.ReadHoldingRegistersAsync((ushort)(Kducer.HR_PROGRAM_DATA_1_TO_64 + 115 * (programNumber - 1)), 115).ConfigureAwait(false)));
                         cancellationToken.ThrowIfCancellationRequested();
                     }
-                    return allTighteningPrograms;
                 }
-
-                ushort activeProgram = await KduAsyncOperationTasks.GetActiveProgramNumber(mbClient).ConfigureAwait(false);
-
-                for (ushort programNumber = 1; programNumber <= 200; programNumber++)
+                else if (kduVersion < 40)
                 {
-                    if (programNumber <= 64)
+                    allTighteningPrograms = new Dictionary<ushort, KducerTighteningProgram>();
+                    ushort activeProgram = await KduAsyncOperationTasks.GetActiveProgramNumber(mbClient).ConfigureAwait(false);
+                    for (ushort programNumber = 1; programNumber <= 200; programNumber++)
                     {
-                        allTighteningPrograms.Add(programNumber, new KducerTighteningProgram(await mbClient.ReadHoldingRegistersAsync((ushort)(Kducer.HR_PROGRAM_DATA_1_TO_64 + 115 * (programNumber - 1)), 115).ConfigureAwait(false)));
-                        cancellationToken.ThrowIfCancellationRequested();
+                        if (programNumber <= 64)
+                        {
+                            allTighteningPrograms.Add(programNumber, new KducerTighteningProgram(await mbClient.ReadHoldingRegistersAsync((ushort)(Kducer.HR_PROGRAM_DATA_1_TO_64 + 115 * (programNumber - 1)), 115).ConfigureAwait(false)));
+                            cancellationToken.ThrowIfCancellationRequested();
+                        }
+                        else
+                        {
+                            await mbClient.WriteSingleRegisterAsync(Kducer.HR_PROGRAM_NR, programNumber).ConfigureAwait(false);
+                            allTighteningPrograms.Add(programNumber, new KducerTighteningProgram(await mbClient.ReadHoldingRegistersAsync(Kducer.HR_PROGRAM_DATA_65_TO_200, 115).ConfigureAwait(false)));
+                            cancellationToken.ThrowIfCancellationRequested();
+                        }
                     }
-                    else
-                    {
-                        await mbClient.WriteSingleRegisterAsync(Kducer.HR_PROGRAM_NR, programNumber).ConfigureAwait(false);
-                        allTighteningPrograms.Add(programNumber, new KducerTighteningProgram(await mbClient.ReadHoldingRegistersAsync(Kducer.HR_PROGRAM_DATA_65_TO_200, 115).ConfigureAwait(false)));
-                        cancellationToken.ThrowIfCancellationRequested();
-                    }
+                    await mbClient.WriteSingleRegisterAsync(Kducer.HR_PROGRAM_NR, activeProgram).ConfigureAwait(false);
                 }
-
-                await mbClient.WriteSingleRegisterAsync(Kducer.HR_PROGRAM_NR, activeProgram).ConfigureAwait(false);
+                else
+                {
+                    Tuple<KducerControllerGeneralSettings, Dictionary<ushort, KducerTighteningProgram>, Dictionary<ushort, KducerSequenceOfTighteningPrograms>> parsedData = await DownloadEntireConfFromKduV40(mbClient, cancellationToken).ConfigureAwait(false);
+                    allTighteningPrograms = parsedData.Item2;
+                }
 
                 return allTighteningPrograms;
             }
@@ -1441,28 +1492,34 @@ namespace Kolver
 
             internal static async Task<Dictionary<ushort, KducerSequenceOfTighteningPrograms>> GetAllSequencesData(ReducedModbusTcpClientAsync mbClient, ushort kduVersion, CancellationToken cancellationToken)
             {
-                Dictionary<ushort, KducerSequenceOfTighteningPrograms> allSequences = new Dictionary<ushort, KducerSequenceOfTighteningPrograms>();
+                Dictionary<ushort, KducerSequenceOfTighteningPrograms> allSequences;
 
                 if (kduVersion < 38)
                 {
+                    allSequences = new Dictionary<ushort, KducerSequenceOfTighteningPrograms>();
                     for (ushort sequenceNumber = 1; sequenceNumber <= 8; sequenceNumber++)
                     {
                         allSequences.Add(sequenceNumber, new KducerSequenceOfTighteningPrograms(await mbClient.ReadHoldingRegistersAsync((ushort)(Kducer.HR_SEQUENCE_DATA_1_TO_8 + 48 * (sequenceNumber - 1)), 32).ConfigureAwait(false)));
                         cancellationToken.ThrowIfCancellationRequested();
                     }
-                    return allSequences;
                 }
-
-                ushort activeSequence = await KduAsyncOperationTasks.GetActiveSequenceNumber(mbClient).ConfigureAwait(false);
-
-                for (ushort sequenceNumber = 1; sequenceNumber <= 24; sequenceNumber++)
+                else if (kduVersion < 40)
                 {
-                    await mbClient.WriteSingleRegisterAsync(Kducer.HR_SEQUENCE_NR, sequenceNumber).ConfigureAwait(false);
-                    allSequences.Add(sequenceNumber, new KducerSequenceOfTighteningPrograms(await mbClient.ReadHoldingRegistersAsync(Kducer.HR_SEQUENCE_DATA_9_TO_24, 56).ConfigureAwait(false)));
-                    cancellationToken.ThrowIfCancellationRequested();
+                    allSequences = new Dictionary<ushort, KducerSequenceOfTighteningPrograms>();
+                    ushort activeSequence = await KduAsyncOperationTasks.GetActiveSequenceNumber(mbClient).ConfigureAwait(false);
+                    for (ushort sequenceNumber = 1; sequenceNumber <= 24; sequenceNumber++)
+                    {
+                        await mbClient.WriteSingleRegisterAsync(Kducer.HR_SEQUENCE_NR, sequenceNumber).ConfigureAwait(false);
+                        allSequences.Add(sequenceNumber, new KducerSequenceOfTighteningPrograms(await mbClient.ReadHoldingRegistersAsync(Kducer.HR_SEQUENCE_DATA_9_TO_24, 56).ConfigureAwait(false)));
+                        cancellationToken.ThrowIfCancellationRequested();
+                    }
+                    await mbClient.WriteSingleRegisterAsync(Kducer.HR_SEQUENCE_NR, activeSequence).ConfigureAwait(false);
                 }
-
-                await mbClient.WriteSingleRegisterAsync(Kducer.HR_SEQUENCE_NR, activeSequence).ConfigureAwait(false);
+                else
+                {
+                    Tuple<KducerControllerGeneralSettings, Dictionary<ushort, KducerTighteningProgram>, Dictionary<ushort, KducerSequenceOfTighteningPrograms>> parsedData = await DownloadEntireConfFromKduV40(mbClient, cancellationToken).ConfigureAwait(false);
+                    allSequences = parsedData.Item3;
+                }
 
                 return allSequences;
             }
@@ -1473,8 +1530,15 @@ namespace Kolver
                     return new KducerControllerGeneralSettings(await mbClient.ReadHoldingRegistersAsync(Kducer.HR_GENERALSETTINGS_V37, 39).ConfigureAwait(false));
                 else if (kduVersion == 38)
                     return new KducerControllerGeneralSettings(await mbClient.ReadHoldingRegistersAsync(Kducer.HR_GENERALSETTINGS, 43).ConfigureAwait(false));
-                else
+                else if (kduVersion == 39)
                     return new KducerControllerGeneralSettings(await mbClient.ReadHoldingRegistersAsync(Kducer.HR_GENERALSETTINGS, 44).ConfigureAwait(false));
+                else// if (kduVersion == 40)
+                {
+                    byte[] concatenatedRegisters = new byte[92];
+                    (await mbClient.ReadHoldingRegistersAsync(Kducer.HR_GENERALSETTINGS, 44).ConfigureAwait(false)).CopyTo(concatenatedRegisters, 0);
+                    (await mbClient.ReadHoldingRegistersAsync(Kducer.HR_GENERALSETTINGS_ADDITIONAL_V40, 2).ConfigureAwait(false)).CopyTo(concatenatedRegisters, 88);
+                    return new KducerControllerGeneralSettings(concatenatedRegisters);
+                }
             }
 
             internal static async Task SendGeneralSettings(ReducedModbusTcpClientAsync mbClient, KducerControllerGeneralSettings kduGeneralSettings, ushort kduVersion, bool writeToPermanentMemory, CancellationToken cancellationToken)
@@ -1488,8 +1552,13 @@ namespace Kolver
                     await mbClient.WriteMultipleRegistersAsync(Kducer.HR_GENERALSETTINGS_V37, kduGeneralSettings.getGeneralSettingsModbusHoldingRegistersAsByteArray_KDUv37andPrior()).ConfigureAwait(false);
                 else if (kduVersion == 38)
                     await mbClient.WriteMultipleRegistersAsync(Kducer.HR_GENERALSETTINGS, kduGeneralSettings.getGeneralSettingsModbusHoldingRegistersAsByteArray_KDUv38()).ConfigureAwait(false);
-                else
-                    await mbClient.WriteMultipleRegistersAsync(Kducer.HR_GENERALSETTINGS, kduGeneralSettings.getGeneralSettingsModbusHoldingRegistersAsByteArray()).ConfigureAwait(false);
+                else if (kduVersion == 39)
+                    await mbClient.WriteMultipleRegistersAsync(Kducer.HR_GENERALSETTINGS, kduGeneralSettings.getGeneralSettingsModbusHoldingRegistersAsByteArray_KDUv39()).ConfigureAwait(false);
+                else// if (kduVersion == 40)
+                {
+                    await mbClient.WriteMultipleRegistersAsync(Kducer.HR_GENERALSETTINGS, kduGeneralSettings.getGeneralSettingsModbusHoldingRegistersAsByteArray_KDUv39()).ConfigureAwait(false);
+                    await mbClient.WriteMultipleRegistersAsync(Kducer.HR_GENERALSETTINGS_ADDITIONAL_V40, kduGeneralSettings.getGeneralSettingsModbusHoldingRegistersAsByteArray_KDUv40_SecondTrancheOnly()).ConfigureAwait(false);
+                }
 
                 if (kduVersion <= 37 || writeToPermanentMemory)
                 {
@@ -1504,11 +1573,19 @@ namespace Kolver
 
             internal static async Task<Tuple<KducerControllerGeneralSettings, Dictionary<ushort, KducerTighteningProgram>, Dictionary<ushort, KducerSequenceOfTighteningPrograms>>> GetSettingsAndProgramsAndSequencesData(ReducedModbusTcpClientAsync mbClient, ushort kduVersion, CancellationToken cancellationToken)
             {
-                Dictionary<ushort, KducerTighteningProgram> programs = await GetAllProgramsData(mbClient, kduVersion, cancellationToken).ConfigureAwait(false);
-                Dictionary<ushort, KducerSequenceOfTighteningPrograms> sequences = await GetAllSequencesData(mbClient, kduVersion, cancellationToken).ConfigureAwait(false);
-                KducerControllerGeneralSettings settings = await GetGeneralSettings(mbClient, kduVersion).ConfigureAwait(false);
-                await Task.Delay(PR_SEQ_CHANGE_WAIT, cancellationToken).ConfigureAwait(false);
-                return new Tuple<KducerControllerGeneralSettings, Dictionary<ushort, KducerTighteningProgram>, Dictionary<ushort, KducerSequenceOfTighteningPrograms>>(settings, programs, sequences);
+                if (kduVersion < 40)
+                {
+                    Dictionary<ushort, KducerTighteningProgram> programs = await GetAllProgramsData(mbClient, kduVersion, cancellationToken).ConfigureAwait(false);
+                    Dictionary<ushort, KducerSequenceOfTighteningPrograms> sequences = await GetAllSequencesData(mbClient, kduVersion, cancellationToken).ConfigureAwait(false);
+                    KducerControllerGeneralSettings settings = await GetGeneralSettings(mbClient, kduVersion).ConfigureAwait(false);
+                    if (kduVersion > 37)
+                        await Task.Delay(PR_SEQ_CHANGE_WAIT, cancellationToken).ConfigureAwait(false);
+                    return new Tuple<KducerControllerGeneralSettings, Dictionary<ushort, KducerTighteningProgram>, Dictionary<ushort, KducerSequenceOfTighteningPrograms>>(settings, programs, sequences);
+                }
+                else
+                {
+                    return await DownloadEntireConfFromKduV40(mbClient, cancellationToken).ConfigureAwait(false);
+                }
             }
 
             internal static async Task SendSettingsAndProgramsAndSequencesData(ReducedModbusTcpClientAsync mbClient, Tuple<KducerControllerGeneralSettings, Dictionary<ushort, KducerTighteningProgram>, Dictionary<ushort, KducerSequenceOfTighteningPrograms>> settingsProgramsSequences, ushort kduVersion, bool writeToPermanentMemory, CancellationToken cancellationToken)
@@ -1572,8 +1649,13 @@ namespace Kolver
 
                     if (kduVersion == 38)
                         await mbClient.WriteMultipleRegistersAsync(Kducer.HR_GENERALSETTINGS, settingsProgramsSequences.Item1.getGeneralSettingsModbusHoldingRegistersAsByteArray_KDUv38()).ConfigureAwait(false);
-                    else
-                        await mbClient.WriteMultipleRegistersAsync(Kducer.HR_GENERALSETTINGS, settingsProgramsSequences.Item1.getGeneralSettingsModbusHoldingRegistersAsByteArray()).ConfigureAwait(false);
+                    else if (kduVersion == 39)
+                        await mbClient.WriteMultipleRegistersAsync(Kducer.HR_GENERALSETTINGS, settingsProgramsSequences.Item1.getGeneralSettingsModbusHoldingRegistersAsByteArray_KDUv39()).ConfigureAwait(false);
+                    else// if (kduVersion == 40)
+                    {
+                        await mbClient.WriteMultipleRegistersAsync(Kducer.HR_GENERALSETTINGS, settingsProgramsSequences.Item1.getGeneralSettingsModbusHoldingRegistersAsByteArray_KDUv39()).ConfigureAwait(false);
+                        await mbClient.WriteMultipleRegistersAsync(Kducer.HR_GENERALSETTINGS_ADDITIONAL_V40, settingsProgramsSequences.Item1.getGeneralSettingsModbusHoldingRegistersAsByteArray_KDUv40_SecondTrancheOnly()).ConfigureAwait(false);
+                    }
                 }
 
                 if (kduVersion <= 37 || writeToPermanentMemory)
@@ -1585,6 +1667,32 @@ namespace Kolver
                 {
                     await Task.Delay(PR_SEQ_CHANGE_WAIT, cancellationToken).ConfigureAwait(false);
                 }
+            }
+
+            internal static async Task<ushort[]> GetKtlsPositions(ReducedModbusTcpClientAsync mbClient)
+            {
+                byte[] positionsAsByteArr = await mbClient.ReadInputRegistersAsync(Kducer.IR_KTLS_POSITIONS.addr, Kducer.IR_KTLS_POSITIONS.count).ConfigureAwait(false);
+                ushort[] ktlsPositions = new ushort[Kducer.IR_KTLS_POSITIONS.count];
+                for (int i = 0; i < Kducer.IR_KTLS_POSITIONS.count; i++)
+                    ktlsPositions[i] = ModbusByteConversions.TwoModbusBigendianBytesToUshort(positionsAsByteArr, i*2);
+                return ktlsPositions;
+            }
+
+            private static async Task<Tuple<KducerControllerGeneralSettings, Dictionary<ushort, KducerTighteningProgram>, Dictionary<ushort, KducerSequenceOfTighteningPrograms>>> DownloadEntireConfFromKduV40(ReducedModbusTcpClientAsync mbClient, CancellationToken cancellationToken)
+            {
+                await mbClient.WriteSingleRegisterAsync(Kducer.HR_SPECIAL_RXALLCONFDATA, 48096).ConfigureAwait(false);
+                await Task.Delay(PR_SEQ_CHANGE_WAIT, cancellationToken).ConfigureAwait(false); // takes 300-500ms to stream the entire conf, might as well sleep
+                byte[] numBytesToRx_asBytes = await mbClient.SocketExposed_ReceiveAllAsync(4).ConfigureAwait(false); // first, receive 4 bytes (uint32_t) telling us how many bytes KDU is going to send
+                uint numBytesToBeRecv;
+                if (BitConverter.IsLittleEndian)
+                    numBytesToBeRecv = ((uint)numBytesToRx_asBytes[3] << 24) | ((uint)numBytesToRx_asBytes[2] << 16) | ((uint)numBytesToRx_asBytes[1] << 8) | numBytesToRx_asBytes[0];
+                else
+                    numBytesToBeRecv = ((uint)numBytesToRx_asBytes[0] << 24) | ((uint)numBytesToRx_asBytes[1] << 16) | ((uint)numBytesToRx_asBytes[2] << 8) | numBytesToRx_asBytes[3];
+                byte[] entireConfData = await mbClient.SocketExposed_ReceiveAllAsync((int)numBytesToBeRecv).ConfigureAwait(false); // then receive the bytes (even if it's a different number than we expect, so we can go back to modbus after)
+                if (numBytesToBeRecv != 48096 || entireConfData.Length != 48096)
+                    throw new InvalidOperationException($"Failed to get all configuration data from KDU-1A at {mbClient.kduIpAddress}. Expected 48096 bytes, KDU-1A sent {numBytesToBeRecv}, client received {entireConfData.Length}");
+                await Task.Delay(SHORT_WAIT, cancellationToken).ConfigureAwait(false); // give KDU a moment to return to modbus tcp mode
+                return KducerKduDataFileReader.ParseKduConfBytes(entireConfData);
             }
         }
 

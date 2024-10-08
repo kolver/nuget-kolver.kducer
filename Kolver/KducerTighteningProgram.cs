@@ -608,6 +608,46 @@ namespace Kolver
         {
             ModbusByteConversions.CopyUshortToBytesAsModbusBigendian(cNm, tighteningProgramHoldingRegistersAsByteArray, 178);
         }
+        /// <summary>(KDU-1A v40 and newer only) Tolerance (+/-) for the position measurement from the Ktls Sensor. In mm or 10*degrees (tenths of degrees). Max value 250.</summary>
+        public ushort GetKtlsSensor1Tolerance()
+        {
+            return ModbusByteConversions.TwoModbusBigendianBytesToUshort(tighteningProgramHoldingRegistersAsByteArray, 180);
+        }
+        /// <summary>(KDU-1A v40 and newer only) Tolerance (+/-) for the position measurement from the Ktls Sensor. In mm or 10*degrees (tenths of degrees). Max value 250.</summary>
+        public void SetKtlsSensor1Tolerance(ushort tolerance)
+        {
+            ModbusByteConversions.CopyUshortToBytesAsModbusBigendian(tolerance, tighteningProgramHoldingRegistersAsByteArray, 180);
+        }
+        /// <summary>(KDU-1A v40 and newer only) Tolerance (+/-) for the position measurement from the Ktls Sensor. In mm or 10*degrees (tenths of degrees). Max value 250.</summary>
+        public ushort GetKtlsSensor2Tolerance()
+        {
+            return ModbusByteConversions.TwoModbusBigendianBytesToUshort(tighteningProgramHoldingRegistersAsByteArray, 182);
+        }
+        /// <summary>(KDU-1A v40 and newer only) Tolerance (+/-) for the position measurement from the Ktls Sensor. In mm or 10*degrees (tenths of degrees). Max value 250.</summary>
+        public void SetKtlsSensor2Tolerance(ushort tolerance)
+        {
+            ModbusByteConversions.CopyUshortToBytesAsModbusBigendian(tolerance, tighteningProgramHoldingRegistersAsByteArray, 182);
+        }
+        /// <summary>(KDU-1A v40 and newer only) Tolerance (+/-) for the position measurement from the Ktls Sensor. In mm or 10*degrees (tenths of degrees). Max value 250.</summary>
+        public ushort GetKtlsSensor3Tolerance()
+        {
+            return ModbusByteConversions.TwoModbusBigendianBytesToUshort(tighteningProgramHoldingRegistersAsByteArray, 184);
+        }
+        /// <summary>(KDU-1A v40 and newer only) Tolerance (+/-) for the position measurement from the Ktls Sensor. In mm or 10*degrees (tenths of degrees). Max value 250.</summary>
+        public void SetKtlsSensor3Tolerance(ushort tolerance)
+        {
+            ModbusByteConversions.CopyUshortToBytesAsModbusBigendian(tolerance, tighteningProgramHoldingRegistersAsByteArray, 184);
+        }
+        /// <summary>(KDU-1A v40 and newer only) 0 = Off, 1 = Nm, 2 = kgf.cm, 3 = lbf.in, 4 = ozf.in, 5 = lbf.ft</summary>
+        public ushort GetSubstituteTorqueUnits()
+        {
+            return ModbusByteConversions.TwoModbusBigendianBytesToUshort(tighteningProgramHoldingRegistersAsByteArray, 186);
+        }
+        /// <summary>(KDU-1A v40 and newer only) 0 = Off, 1 = Nm, 2 = kgf.cm, 3 = lbf.in, 4 = ozf.in, 5 = lbf.ft</summary>
+        public void SetSubstituteTorqueUnits(ushort units)
+        {
+            ModbusByteConversions.CopyUshortToBytesAsModbusBigendian(units, tighteningProgramHoldingRegistersAsByteArray, 186);
+        }
 
         private void SetMiscConfBit(int confBitIdx, bool bitState)
         {
