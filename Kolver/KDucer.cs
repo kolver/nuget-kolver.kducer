@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Data.SqlTypes;
 using System.Net;
 using System.Net.Sockets;
 using System.Runtime.CompilerServices;
@@ -51,6 +52,7 @@ namespace Kolver
         private const ushort HR_SPECIAL_RXALLCONFDATA = 8016;
         private const ushort HR_GENERALSETTINGS_ADDITIONAL_V40 = 8026;
         private const ushort HR_SPECIAL_EXTENDEDGRAPHS = 8015;
+        private static readonly (ushort addr, ushort count) HR_DATE_TIME = (8007, 6);
 
         private readonly ILogger kduLogger;
         private readonly IPAddress kduIpAddress;
@@ -59,6 +61,7 @@ namespace Kolver
         private bool lockScrewdriverUntilGetResult;
         private bool lockScrewdriverIndefinitelyAfterResult;
         private bool replaceResultTimestampWithLocalTimestamp = true;
+        private bool highResGraphsEnabled = false;
 
         private ushort kduSoftwareVersion;
 
@@ -226,7 +229,7 @@ namespace Kolver
 
                     if (kduSoftwareVersion == 38 || kduSoftwareVersion == 39)
                     {
-                        await mbClient.WriteSingleRegisterAsync(HR_SPECIAL_EXTENDEDGRAPHS, 0).ConfigureAwait(false);  // disable extended graphs, not needed in other KDU versions
+                        await mbClient.WriteSingleRegisterAsync(HR_SPECIAL_EXTENDEDGRAPHS, 0).ConfigureAwait(false);  // disable extended graphs, not needed in other KDU versions (automatically disabled on new connections)
                     }
 
                     await mbClient.ReadInputRegistersAsync(IR_NEW_RESULT_SELFCLEARING_FLAG, 1).ConfigureAwait(false); // clear new result flag if already present
@@ -244,7 +247,7 @@ namespace Kolver
                         }
                         else
                         {
-                            commsTask = KduAsyncOperationTasks.CheckAndEnqueueKduResult(resultsQueue, mbClient, lockScrewdriverUntilGetResult, lockScrewdriverIndefinitelyAfterResult, replaceResultTimestampWithLocalTimestamp, asyncCommsCts.Token);
+                            commsTask = KduAsyncOperationTasks.CheckAndEnqueueKduResult(resultsQueue, mbClient, lockScrewdriverUntilGetResult, lockScrewdriverIndefinitelyAfterResult, replaceResultTimestampWithLocalTimestamp, highResGraphsEnabled, asyncCommsCts.Token);
                         }
 
                         await Task.WhenAll(interval, commsTask).ConfigureAwait(false);
@@ -451,7 +454,7 @@ namespace Kolver
 
             try
             {
-                KduUserCmdTaskAsync userCmdTask = new KduUserCmdTaskAsync(UserCmd.RunScrewdriver, cancelRunScrewdriver.Token, 0, replaceResultTimestampWithLocalTimestamp);
+                KduUserCmdTaskAsync userCmdTask = new KduUserCmdTaskAsync(UserCmd.RunScrewdriver, cancelRunScrewdriver.Token, (ushort)(highResGraphsEnabled ? 1 : 0), replaceResultTimestampWithLocalTimestamp);
                 await EnqueueAndWaitForUserCmdToBeProcessedInAsyncCommsLoopAsync(userCmdTask).ConfigureAwait(false);
                 return userCmdTask.tighteningResult;
             }
@@ -904,6 +907,63 @@ namespace Kolver
             return new Tuple<ushort[],ushort[],ushort[]>(arm1Positions, arm2Positions, targetPositions);
         }
 
+        /// <summary>
+        /// Set high resolution graph mode (disabled by default)
+        /// </summary>
+        /// <exception cref="ModbusException">If KDU received the command but was unable to process it, for example if the KDU configuration menu is open on the touch screen</exception>
+        /// <exception cref="SocketException">If the KDU disconnected in the middle of processing the command</exception>
+        public async Task SetHighResGraphModeAsync(bool enableHighResGraphs)
+        {
+            await WaitForKduMainboardVersion().ConfigureAwait(false);
+            if (kduSoftwareVersion < 38)
+                throw new InvalidOperationException($"KDU version is {kduSoftwareVersion}, update to version 38 or newer to get high res graph functionality.");
+            KduUserCmdTaskAsync userCmdTask = new KduUserCmdTaskAsync(UserCmd.SetHighResGraphMode, asyncCommsCts.Token, (ushort)(enableHighResGraphs ? 1 : 0));
+            await EnqueueAndWaitForUserCmdToBeProcessedInAsyncCommsLoopAsync(userCmdTask).ConfigureAwait(false);
+            highResGraphsEnabled = enableHighResGraphs;
+        }
+
+        /// <summary>
+        /// Gets the date time of the controller
+        /// </summary>
+        /// <returns>A DateTime object representing the date-time set on the controller</returns>
+        /// <exception cref="ModbusException">If KDU received the command but was unable to process it, for example if the KDU configuration menu is open on the touch screen</exception>
+        /// <exception cref="SocketException">If the KDU disconnected in the middle of processing the command</exception>
+        public async Task<DateTime> GetDateTimeAsync()
+        {
+            await WaitForKduMainboardVersion().ConfigureAwait(false);
+            if (kduSoftwareVersion < 39)
+                throw new InvalidOperationException($"KDU version is {kduSoftwareVersion}, update to version 39 or newer to get and set the datetime via this library.");
+            KduUserCmdTaskAsync userCmdTask = new KduUserCmdTaskAsync(UserCmd.GetDateTime, asyncCommsCts.Token);
+            await EnqueueAndWaitForUserCmdToBeProcessedInAsyncCommsLoopAsync(userCmdTask).ConfigureAwait(false);
+            return userCmdTask.dateTime;
+        }
+
+        /// <summary>
+        /// Sets the date time of the controller
+        /// </summary>
+        /// <param name="newDateTime">A DateTime object representing the date-time to set on the controller</param>
+        /// <exception cref="ModbusException">If KDU received the command but was unable to process it, for example if the KDU configuration menu is open on the touch screen</exception>
+        /// <exception cref="SocketException">If the KDU disconnected in the middle of processing the command</exception>
+        public async Task SetDateTimeAsync(DateTime newDateTime)
+        {
+            await WaitForKduMainboardVersion().ConfigureAwait(false);
+            if (kduSoftwareVersion < 39)
+                throw new InvalidOperationException($"KDU version is {kduSoftwareVersion}, update to version 39 or newer to get and set the datetime via this library.");
+            KduUserCmdTaskAsync userCmdTask = new KduUserCmdTaskAsync(UserCmd.SetDateTime, asyncCommsCts.Token);
+            userCmdTask.dateTime = newDateTime;
+            await EnqueueAndWaitForUserCmdToBeProcessedInAsyncCommsLoopAsync(userCmdTask).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Sets the date time of the controller, same as calling SetDateTimeAsync(DateTime.Now)
+        /// </summary>
+        /// <exception cref="ModbusException">If KDU received the command but was unable to process it, for example if the KDU configuration menu is open on the touch screen</exception>
+        /// <exception cref="SocketException">If the KDU disconnected in the middle of processing the command</exception>
+        public async Task SetDateTimeToNowAsync()
+        {
+            await SetDateTimeAsync(DateTime.Now).ConfigureAwait(false);
+        }
+
         private async Task EnqueueAndWaitForUserCmdToBeProcessedInAsyncCommsLoopAsync(KduUserCmdTaskAsync userCmdTask)
         {
             userCmdTaskQueue.Enqueue(userCmdTask);
@@ -958,7 +1018,10 @@ namespace Kolver
             SetSequenceOrProgramMode,
             GetCoils,
             GetDiscreteInputs,
-            GetKtlsPositions
+            GetKtlsPositions,
+            SetHighResGraphMode,
+            GetDateTime,
+            SetDateTime
         }
 
         private class KduUserCmdTaskAsync
@@ -982,6 +1045,7 @@ namespace Kolver
             internal Tuple<KducerControllerGeneralSettings, Dictionary<ushort, KducerTighteningProgram>, Dictionary<ushort, KducerSequenceOfTighteningPrograms>> settingsAndProgramsAndSequencesTuple;
             internal bool[] bits;
             internal ushort[] ktlsPositions;
+            internal DateTime dateTime;
 
             internal KduUserCmdTaskAsync(UserCmd cmd, CancellationToken cancellationToken, ushort payload = 0, bool replaceResultTimestampWithLocalTimestamp = true)
             {
@@ -1024,7 +1088,7 @@ namespace Kolver
                             break;
 
                         case UserCmd.RunScrewdriver:
-                            tighteningResult = await KduAsyncOperationTasks.RunScrewdriver(mbClient, replaceResultTimestampWithLocalTimestamp, cancellationToken).ConfigureAwait(false);
+                            tighteningResult = await KduAsyncOperationTasks.RunScrewdriver(mbClient, replaceResultTimestampWithLocalTimestamp, payload > 0, cancellationToken).ConfigureAwait(false);
                             break;
 
                         case UserCmd.GetTighteningProgramData:
@@ -1122,6 +1186,18 @@ namespace Kolver
                         case UserCmd.GetKtlsPositions:
                             ktlsPositions = await KduAsyncOperationTasks.GetKtlsPositions(mbClient).ConfigureAwait(false);
                             break;
+
+                        case UserCmd.SetHighResGraphMode:
+                            await KduAsyncOperationTasks.SetHighResGraphMode(mbClient, payload).ConfigureAwait(false);
+                            break;
+
+                        case UserCmd.GetDateTime:
+                            dateTime = await KduAsyncOperationTasks.GetDateTime(mbClient).ConfigureAwait(false);
+                            break;
+
+                        case UserCmd.SetDateTime:
+                            await KduAsyncOperationTasks.SetDateTime(mbClient, dateTime).ConfigureAwait(false);
+                            break;
                     }
                 }
                 catch (SocketException tcpError)
@@ -1144,17 +1220,21 @@ namespace Kolver
 
         private static class KduAsyncOperationTasks
         {
-            internal static async Task CheckAndEnqueueKduResult(ConcurrentQueue<KducerTighteningResult> resultsQueue, ReducedModbusTcpClientAsync mbClient, bool lockScrewdriverUntilResultsProcessed, bool lockScrewdriverIndefinitelyAfterResult, bool replaceResultTimestampWithLocalTimestamp, CancellationToken cancellationToken)
+            internal static async Task CheckAndEnqueueKduResult(ConcurrentQueue<KducerTighteningResult> resultsQueue, ReducedModbusTcpClientAsync mbClient, bool lockScrewdriverUntilResultsProcessed, bool lockScrewdriverIndefinitelyAfterResult, bool replaceResultTimestampWithLocalTimestamp, bool highResGraphsEnabled, CancellationToken cancellationToken)
             {
                 byte newResultFlag = (await mbClient.ReadInputRegistersAsync(Kducer.IR_NEW_RESULT_SELFCLEARING_FLAG, 1).ConfigureAwait(false))[1];
                 cancellationToken.ThrowIfCancellationRequested();
 
                 if (newResultFlag == 1)
                 {
+                    byte[] angleGraphBytesHighRes = null, torqueGraphBytesHighRes = null;
+                    if (highResGraphsEnabled)
+                        (torqueGraphBytesHighRes, angleGraphBytesHighRes) = await KduAsyncOperationTasks.GetHighResGraphsByteArrays(mbClient, cancellationToken).ConfigureAwait(false);
+
                     byte[] resultInputRegisters = await mbClient.ReadInputRegistersAsync(Kducer.IR_RESULT_DATA.addr, Kducer.IR_RESULT_DATA.count).ConfigureAwait(false);
                     byte[] torqueGraphRegisters = await mbClient.ReadInputRegistersAsync(Kducer.IR_TORQUEGRAPH_DATA.addr, Kducer.IR_TORQUEGRAPH_DATA.count).ConfigureAwait(false);
                     byte[] angleGraphRegisters = await mbClient.ReadInputRegistersAsync(Kducer.IR_ANGLEGRAPH_DATA.addr, Kducer.IR_ANGLEGRAPH_DATA.count).ConfigureAwait(false);
-                    resultsQueue.Enqueue(new KducerTighteningResult(resultInputRegisters, replaceResultTimestampWithLocalTimestamp, new KducerTorqueAngleTimeGraph(torqueGraphRegisters, angleGraphRegisters)));
+                    resultsQueue.Enqueue(new KducerTighteningResult(resultInputRegisters, replaceResultTimestampWithLocalTimestamp, new KducerTorqueAngleTimeGraph(torqueGraphRegisters, angleGraphRegisters, torqueGraphBytesHighRes, angleGraphBytesHighRes)));
                     cancellationToken.ThrowIfCancellationRequested();
 
                     if (lockScrewdriverUntilResultsProcessed || lockScrewdriverIndefinitelyAfterResult)
@@ -1227,20 +1307,48 @@ namespace Kolver
                 await Task.Delay(SHORT_WAIT, cancellationToken).ConfigureAwait(false);
             }
 
-            internal static async Task<KducerTighteningResult> RunScrewdriver(ReducedModbusTcpClientAsync mbClient, bool replaceResultTimestampWithLocalTimestamp, CancellationToken cancellationToken)
+            internal static async Task<Tuple<byte[],byte[]>> GetHighResGraphsByteArrays(ReducedModbusTcpClientAsync mbClient, CancellationToken cancellationToken)
             {
-                await mbClient.ReadInputRegistersAsync(Kducer.IR_NEW_RESULT_SELFCLEARING_FLAG, 1).ConfigureAwait(false);
+                byte[] angleGraphBytesHighRes = null, torqueGraphBytesHighRes = null;
+                await Task.Delay(SHORT_WAIT, cancellationToken).ConfigureAwait(false); // takes at least 50ms to stream graphs, might as well sleep
+                byte[] numBytesToRx_asBytes = await mbClient.SocketExposed_ReceiveAllAsync(4).ConfigureAwait(false); // first, receive 4 bytes (uint32_t) telling us how many bytes KDU is going to send
+                uint numBytesToBeRecv;
+                if (BitConverter.IsLittleEndian)
+                    numBytesToBeRecv = ((uint)numBytesToRx_asBytes[3] << 24) | ((uint)numBytesToRx_asBytes[2] << 16) | ((uint)numBytesToRx_asBytes[1] << 8) | numBytesToRx_asBytes[0];
+                else
+                    numBytesToBeRecv = ((uint)numBytesToRx_asBytes[0] << 24) | ((uint)numBytesToRx_asBytes[1] << 16) | ((uint)numBytesToRx_asBytes[2] << 8) | numBytesToRx_asBytes[3];
+                if (numBytesToBeRecv > 0)
+                {
+                    angleGraphBytesHighRes = await mbClient.SocketExposed_ReceiveAllAsync((int)numBytesToBeRecv / 2).ConfigureAwait(false);
+                    torqueGraphBytesHighRes = await mbClient.SocketExposed_ReceiveAllAsync((int)numBytesToBeRecv / 2).ConfigureAwait(false);
+                    if (numBytesToBeRecv != (angleGraphBytesHighRes.Length + torqueGraphBytesHighRes.Length))
+                        throw new InvalidOperationException($"Failed to get high res torque and angle graph data from KDU-1A at {mbClient.kduIpAddress}. Expected {numBytesToBeRecv} bytes, received {angleGraphBytesHighRes.Length + torqueGraphBytesHighRes.Length}");
+                }
+                cancellationToken.ThrowIfCancellationRequested();
+                return new Tuple<byte[], byte[]>(torqueGraphBytesHighRes, angleGraphBytesHighRes);
+            }
+
+            internal static async Task<KducerTighteningResult> RunScrewdriver(ReducedModbusTcpClientAsync mbClient, bool replaceResultTimestampWithLocalTimestamp, bool highResGraphsEnabled, CancellationToken cancellationToken)
+            {
+                byte[] angleGraphBytesHighRes = null, torqueGraphBytesHighRes = null;
+                byte new_result_flag_to_clear = (await mbClient.ReadInputRegistersAsync(Kducer.IR_NEW_RESULT_SELFCLEARING_FLAG, 1).ConfigureAwait(false))[1];
+                if (highResGraphsEnabled && new_result_flag_to_clear != 0)
+                    await GetHighResGraphsByteArrays(mbClient, cancellationToken).ConfigureAwait(false);
+
                 while (!cancellationToken.IsCancellationRequested && (await mbClient.ReadInputRegistersAsync(Kducer.IR_NEW_RESULT_SELFCLEARING_FLAG, 1).ConfigureAwait(false))[1] == 0)
                 {
                     await mbClient.WriteSingleCoilAsync(Kducer.COIL_REMOTE_LEVER, true).ConfigureAwait(false);
                     await Task.Delay(SHORT_WAIT, cancellationToken).ConfigureAwait(false);
                 }
-                await mbClient.WriteSingleCoilAsync(Kducer.COIL_REMOTE_LEVER, false).ConfigureAwait(false);
                 cancellationToken.ThrowIfCancellationRequested();
+                if (highResGraphsEnabled)
+                    (torqueGraphBytesHighRes, angleGraphBytesHighRes) = await GetHighResGraphsByteArrays(mbClient, cancellationToken).ConfigureAwait(false);
+
+                await mbClient.WriteSingleCoilAsync(Kducer.COIL_REMOTE_LEVER, false).ConfigureAwait(false);
                 byte[] resultInputRegisters = await mbClient.ReadInputRegistersAsync(Kducer.IR_RESULT_DATA.addr, Kducer.IR_RESULT_DATA.count).ConfigureAwait(false);
                 byte[] torqueGraphRegisters = await mbClient.ReadInputRegistersAsync(Kducer.IR_TORQUEGRAPH_DATA.addr, Kducer.IR_TORQUEGRAPH_DATA.count).ConfigureAwait(false);
                 byte[] angleGraphRegisters = await mbClient.ReadInputRegistersAsync(Kducer.IR_ANGLEGRAPH_DATA.addr, Kducer.IR_ANGLEGRAPH_DATA.count).ConfigureAwait(false);
-                return new KducerTighteningResult(resultInputRegisters, replaceResultTimestampWithLocalTimestamp, new KducerTorqueAngleTimeGraph(torqueGraphRegisters, angleGraphRegisters));
+                return new KducerTighteningResult(resultInputRegisters, replaceResultTimestampWithLocalTimestamp, new KducerTorqueAngleTimeGraph(torqueGraphRegisters, angleGraphRegisters, torqueGraphBytesHighRes, angleGraphBytesHighRes));
             }
 
             internal static async Task<KducerTighteningProgram> GetTighteningProgramData(ReducedModbusTcpClientAsync mbClient, ushort programNumber)
@@ -1678,6 +1786,14 @@ namespace Kolver
                 return ktlsPositions;
             }
 
+            internal static async Task SetHighResGraphMode(ReducedModbusTcpClientAsync mbClient, ushort mode)
+            {
+                if (mode > 0)
+                    await mbClient.WriteSingleRegisterAsync(Kducer.HR_SPECIAL_EXTENDEDGRAPHS, 1291).ConfigureAwait(false);
+                else
+                    await mbClient.WriteSingleRegisterAsync(Kducer.HR_SPECIAL_EXTENDEDGRAPHS, 0).ConfigureAwait(false);
+            }
+
             private static async Task<Tuple<KducerControllerGeneralSettings, Dictionary<ushort, KducerTighteningProgram>, Dictionary<ushort, KducerSequenceOfTighteningPrograms>>> DownloadEntireConfFromKduV40(ReducedModbusTcpClientAsync mbClient, CancellationToken cancellationToken)
             {
                 await mbClient.WriteSingleRegisterAsync(Kducer.HR_SPECIAL_RXALLCONFDATA, 48096).ConfigureAwait(false);
@@ -1693,6 +1809,28 @@ namespace Kolver
                     throw new InvalidOperationException($"Failed to get all configuration data from KDU-1A at {mbClient.kduIpAddress}. Expected 48096 bytes, KDU-1A sent {numBytesToBeRecv}, client received {entireConfData.Length}");
                 await Task.Delay(SHORT_WAIT, cancellationToken).ConfigureAwait(false); // give KDU a moment to return to modbus tcp mode
                 return KducerKduDataFileReader.ParseKduConfBytes(entireConfData);
+            }
+
+            internal static async Task<DateTime> GetDateTime(ReducedModbusTcpClientAsync mbClient)
+            {
+                byte[] dtRegs = await mbClient.ReadHoldingRegistersAsync(Kducer.HR_DATE_TIME.addr, Kducer.HR_DATE_TIME.count).ConfigureAwait(false);
+                ushort year = ModbusByteConversions.TwoModbusBigendianBytesToUshort(dtRegs, 0);
+                if (year < 1000)
+                    year += 2000;
+                DateTime kdu_datetime = new DateTime(year, dtRegs[3], dtRegs[5], dtRegs[7], dtRegs[9], dtRegs[11]);
+                return kdu_datetime;
+            }
+
+            internal static async Task SetDateTime(ReducedModbusTcpClientAsync mbClient, DateTime dateTime)
+            {
+                byte[] dateTimeRegsAsBytes = new byte[12];
+                dateTimeRegsAsBytes[1] = (byte)(dateTime.Year % 2000);
+                dateTimeRegsAsBytes[3] = (byte)dateTime.Month;
+                dateTimeRegsAsBytes[5] = (byte)dateTime.Day;
+                dateTimeRegsAsBytes[7] = (byte)dateTime.Hour;
+                dateTimeRegsAsBytes[9] = (byte)dateTime.Minute;
+                dateTimeRegsAsBytes[11] = (byte)dateTime.Second;
+                await mbClient.WriteMultipleRegistersAsync(Kducer.HR_DATE_TIME.addr, dateTimeRegsAsBytes).ConfigureAwait(false);
             }
         }
 

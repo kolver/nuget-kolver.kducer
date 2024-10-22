@@ -23,7 +23,7 @@ namespace Kolver
         private readonly static byte[] defaultProgramBytesForKDSPL45 = { 0, 0, 1, 244, 0, 0, 17, 148, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 117, 48, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 90, 0, 0, 2, 88, 0, 0, 0, 0, 0, 0, 0, 0, 8, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 200, 0, 2, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 90, 0, 0, 17, 148, 0, 2, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 3, 0, 2, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3, 232, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
         private readonly static byte[] defaultProgramBytesForKDSPL50 = { 0, 0, 1, 244, 0, 0, 19, 136, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 117, 48, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 90, 0, 0, 2, 88, 0, 0, 0, 0, 0, 0, 0, 0, 8, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 200, 0, 2, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 90, 0, 0, 19, 136, 0, 2, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 3, 0, 2, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3, 232, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
         private readonly static byte[] defaultProgramBytesForKDSPL70 = { 0, 0, 2, 188, 0, 0, 27, 88, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 117, 48, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 50, 0, 0, 2, 88, 0, 0, 0, 0, 0, 0, 0, 0, 8, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 200, 0, 2, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 50, 0, 0, 27, 88, 0, 2, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 3, 0, 2, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3, 232, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
-
+        private readonly static byte[] defaultProgramBytesForKDSPL3 = { 0, 0, 0, 50, 0, 0, 0, 150, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 117, 48, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 44, 0, 0, 2, 88, 0, 0, 0, 0, 0, 0, 0, 0, 8, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 200, 0, 2, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1, 44, 0, 0, 0, 150, 0, 2, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 3, 0, 2, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3, 232, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
         private readonly byte[] tighteningProgramHoldingRegistersAsByteArray = new byte[230];
         /// <summary>
         /// the byte array returned can be sent to the KDU-1A to modify program parameters
@@ -48,7 +48,7 @@ namespace Kolver
         /// <summary>
         /// creates a program with valid default values for a screwdriver
         /// </summary>
-        /// <param name="screwdriverModel">optional, choose from: KDS-MT1.5 (default), KDS-PL6, KDS-PL10, KDS-PL15, KDS-PL20, KDS-PL30, KDS-PL35, KDS-PL45, KDS-PL50, KDS-PL70</param>
+        /// <param name="screwdriverModel">optional, choose from: KDS-MT1.5 (default), KDS-PL6, KDS-PL10, KDS-PL15, KDS-PL20, KDS-PL30, KDS-PL35, KDS-PL45, KDS-PL50, KDS-PL70, KDS-PL3</param>
         public KducerTighteningProgram(string screwdriverModel = "KDS-MT1.5")
         {
             if (screwdriverModel == null)
@@ -74,8 +74,10 @@ namespace Kolver
                 defaultProgramBytesForKDSPL50.CopyTo(this.tighteningProgramHoldingRegistersAsByteArray, 0);
             else if (screwdriverModel.StartsWith("KDS-PL70", StringComparison.Ordinal))
                 defaultProgramBytesForKDSPL70.CopyTo(this.tighteningProgramHoldingRegistersAsByteArray, 0);
+            else if (screwdriverModel.StartsWith("KDS-PL3", StringComparison.Ordinal))
+                defaultProgramBytesForKDSPL3.CopyTo(this.tighteningProgramHoldingRegistersAsByteArray, 0);
             else
-                throw new ArgumentException("Invalid model, choose from: KDS-MT1.5 (default), KDS-PL6, KDS-PL10, KDS-PL15, KDS-PL20, KDS-PL30, KDS-PL35, KDS-PL45, KDS-PL50, KDS-PL70");
+                throw new ArgumentException("Invalid model, choose from: KDS-MT1.5 (default), KDS-PL6, KDS-PL10, KDS-PL15, KDS-PL20, KDS-PL30, KDS-PL35, KDS-PL45, KDS-PL50, KDS-PL70, KDS-PL3");
         }
         /// <summary>in cNm</summary>
         public ushort GetTorqueTarget()

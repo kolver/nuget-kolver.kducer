@@ -237,11 +237,51 @@ namespace Kolver
             ushort ss = ModbusByteConversions.TwoModbusBigendianBytesToUshort(tighteningResultInputRegistersAsByteArray, 112);
             return $"20{YY:D2}-{MM:D2}-{DD:D2} {hh:D2}:{mm:D2}:{ss:D2}";
         }
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <returns>Starts at 1 on controller reboot and increases by 1 for every new screwdriving result. 32bit value.</returns>
+        public uint GetTighteningID()
+        {
+            return ModbusByteConversions.FourModbusBigendianBytesToUint(tighteningResultInputRegistersAsByteArray, 118);
+        }
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <returns>Only available with KDU v40 and later. The "torque min" parameter for the program used in this result, in cNm</returns>
+        public ushort GetTorqueLimitMin()
+        {
+            return ModbusByteConversions.TwoModbusBigendianBytesToUshort(tighteningResultInputRegistersAsByteArray, 122);
+        }
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <returns>Only available with KDU v40 and later. The "torque max" parameter for the program used in this result, in cNm</returns>
+        public ushort GetTorqueLimitMax()
+        {
+            return ModbusByteConversions.TwoModbusBigendianBytesToUshort(tighteningResultInputRegistersAsByteArray, 124);
+        }
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <returns>Only available with KDU v40 and later. The "angle min" parameter for the program used in this result, in degrees</returns>
+        public ushort GetAngleLimitMin()
+        {
+            return ModbusByteConversions.TwoModbusBigendianBytesToUshort(tighteningResultInputRegistersAsByteArray, 126);
+        }
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <returns>Only available with KDU v40 and later. The "angle max" parameter for the program used in this result, in degrees</returns>
+        public ushort GetAngleLimitMax()
+        {
+            return ModbusByteConversions.TwoModbusBigendianBytesToUshort(tighteningResultInputRegistersAsByteArray, 128);
+        }
 
         private static readonly List<string> kdsModels = new List<string>
         {
             "Not connected", "KDS-PL6", "KDS-PL10", "KDS-PL15", "KDS-MT1.5", "KDS-PL20", "KDS-PL30ANG",
-            "KDS-PL35", "KDS-PL45ANG", "KDS-PL50", "KDS-PL70ANG"
+            "KDS-PL35", "KDS-PL45ANG", "KDS-PL50", "KDS-PL70ANG", "KDS-PL3"
         };
 
         private static readonly List<string> resultNotesByIndex = new List<string>
@@ -349,7 +389,7 @@ namespace Kolver
             string csvSoFar = string.Join(",", dataInOrder) + "," + angToDSSpeed;
 
             int modelNr = mbResRegs[10];
-            string graphUnits = (modelNr < 5) ? "mNm" : "cNm";
+            string graphUnits = (modelNr < 5 || modelNr == 11) ? "mNm" : "cNm";
 
             string graphTimeInterval = $"{torqueAngleGraph.getTimeIntervalBetweenConsecutivePoints()}";
             List<string> dataInOrder2 = new List<string>()

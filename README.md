@@ -15,9 +15,9 @@ Every public method is commented, so if you are using Visual Studio you can see 
 // The cyclic async TCP/IP communication loop is started immediately after instantiation automatically in the background
 // You can optionally pass a ILoggerFactory for logging errors
 Kducer kdu = new Kducer("192.168.32.103", NullLoggerFactory.Instance);
-// the next two lines do initiate a connection (Kducer connects automatically), they just verify if the connection was successful
+// the next two lines don't initiate a connection (Kducer connects automatically), they just verify if the connection was successful
 bool success = await kdu.IsConnectedWithTimeoutAsync(500); // waits up to 500ms for TCP/IP connection to be estabilished
-bool success = kdu.IsConnectedWithTimeoutBlocking(500); // blocks up to 500ms for TCP/IP connection to be estabilished. this function blocks.
+bool success = kdu.IsConnectedWithTimeoutBlocking(500); // blocks up to 500ms for TCP/IP connection to be established
 // Kducer automatically reconnects if the connection drops. See connection management for more.
 // kdu.Dispose(); // call Dispose when done using
 ```
@@ -27,7 +27,7 @@ When new results are received, the `Kducer` puts them on an internal FIFO queue 
 The object type in the queue is `KducerTighteningResult`, which provides a lot of methods for getting different data about the tightening result.  
 When you retrieve results using `GetResultAsync` or `GetResult`, the tightening result is removed from the `Kducer` internal queue.  
 This mechanism ensures that you can process all tightening results independently of how frequently you check if a new result is present.  
-When your application needs to wait for a new result and/or is expecting a result, you can await `GetResultAsync` (with an optional cancellation token and an optional bool parameter to throw an exception if the connection happens to drop while awaiting).  
+When your application needs to wait for a new result and/or is expecting a result, you can await `GetResultAsync` (with an optional cancellation token and an optional bool parameter to throw an exception if the connection drops while awaiting).  
 You can also check if at least one result is available via `HasNewResult()` and obtain it synchronously with `GetResult`.  
 ### Print a tightening result using async
 ```C#
@@ -63,12 +63,16 @@ KducerTighteningResult result = await kdu.GetResultAsync(CancellationToken.None)
 // use EnableScrewdriver() to re-enable it:
 await kdu.EnableScrewdriver();
 ```
+### Enable high resolution Torque/Angle graphs with each tightening result
+```C#
+await kdu.SetHighResGraphModeAsync(true); // only works with KDU-1A v38 and later, throws exception with earlier versions
+```
 ### Select a program on the K-Ducer controller
 ```C#
 // select a program on the KDU controller
 try
 {
-    await kdu.SelectProgramNumberAsync(60); // select programn number 60. this method checks if program 60 is already selected and shortcuts the return if so.
+    await kdu.SelectProgramNumberAsync(60); // select programn number 60. this method checks if program 60 is already selected and shortcuts the return if so. if the KDU is in sequence mode, this method sets it to program mode
 }
 catch (ModbusException)
 {
@@ -97,13 +101,13 @@ Double check of the measurement units of each parameter, indicated on each funct
 There are no validity checks when setting parameters on the `KducerTighteningProgram` object, but the KDU-1A will bounds-check values being sent to it and will return a Modbus Exception if invalid values are sent. These bounds checks are only for validity, do not rely on them for safety.  
 ```C#
 // create a program with default values for a given KDS screwdriver model
-// choose from: KDS-MT1.5 (default), KDS-PL6, KDS-PL10, KDS-PL15, KDS-PL20, KDS-PL30, KDS-PL35, KDS-PL45, KDS-PL50, KDS-PL70
+// choose from: KDS-MT1.5 (default), KDS-PL6, KDS-PL10, KDS-PL15, KDS-PL20, KDS-PL30, KDS-PL35, KDS-PL45, KDS-PL50, KDS-PL70, KDS-PL3
 KducerTighteningProgram programFromScratch = new KducerTighteningProgram("KDS-PL6");
 // or you can load the currently selected program from the connected kdu
 KducerTighteningProgram programFromKdu = await kdu.GetActiveTighteningProgramDataAsync();
 // modify some parameters
-programFromScratch.SetFinalSpeed(355); // RPM. the units are commended with the function documentation, you should see them via intellisense
-programFromScratch.SetTorqueTarget(50); // cNm. the units are commended with the function documentation, you should see them via intellisense
+programFromScratch.SetFinalSpeed(355); // RPM. the units are specified in the function documentation, you should see them via intellisense
+programFromScratch.SetTorqueTarget(50); // cNm. the units are specified in the function documentation, you should see them via intellisense
 // send the new program to the KDU-1A as program number 15. there are also methods for sending or getting a dictionary of multiple programs in a single command
 await kdu.SendNewProgramDataAsync(15, programFromScratch);
 // to serialize a program for storing in a database, get its byte array representation (note: this does not include the program number, but includes all the program parameters)
@@ -112,6 +116,10 @@ byte[] serializedProgram = programFromScratch.getProgramModbusHoldingRegistersAs
 KducerTighteningProgram recreatedProgram = new KducerTighteningProgram(serializedProgram);
 ```
 There is equivalent functionality for creating and uploading sequences and general settings of the KDU controller.
+### Update the datetime on the KDU controller
+```C#
+await kdu.SetDateTimeToNowAsync(); // only works with KDU-1A v40 and later, throws exception with earlier versions
+```
 ### Connection management
 #### Internal Modbus TCP/IP task
 The Kducer object maintains an internal async tasks that periodically polls the KDU-1A over Modbus TCP for new results, and/or executes the other operations requested.  
