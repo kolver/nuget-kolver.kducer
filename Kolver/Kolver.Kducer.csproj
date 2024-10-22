@@ -3,7 +3,7 @@
   <PropertyGroup>
     <TargetFramework>netstandard2.0</TargetFramework>
     <SignAssembly>False</SignAssembly>
-    <Version>0.3.2</Version>
+    <Version>0.4.0</Version>
     <ProduceReferenceAssembly>True</ProduceReferenceAssembly>
     <GenerateDocumentationFile>True</GenerateDocumentationFile>
     <GeneratePackageOnBuild>True</GeneratePackageOnBuild>
@@ -19,7 +19,11 @@ Brought to you by Kolver www.kolver.com</Description>
     <RepositoryUrl>https://github.com/kolver/nuget-kolver.kducer.git</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <PackageTags>kolver kducer k-ducer modbus modbusTCP torque screwdriver openprotocol open-protocol atlascopco atlas copco asg xpaq mountz cleco estic powerfocus powermacs toolsnet open protocol desoutter</PackageTags>
-    <PackageReleaseNotes></PackageReleaseNotes>
+    <PackageReleaseNotes>high resolution torque angle graphs with tightening result:
+await kdu.SetHighResGraphModeAsync(true); // only works with KDU-1A v38 and later
+support for KDU-1A v40
+support for K-TLS (KDU-1A v40)
+maintains all backwards compatibility</PackageReleaseNotes>
     <EnforceCodeStyleInBuild>True</EnforceCodeStyleInBuild>
     <EnableNETAnalyzers>True</EnableNETAnalyzers>
     <AnalysisLevel>6.0-all</AnalysisLevel>
