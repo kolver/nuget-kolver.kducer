@@ -770,7 +770,7 @@ namespace Kolver
         /// <summary>
         /// Reads the 8 status bits (first 8 modbus coils). These correspond to CN3 output pins 43 through 36:  [ LEVER, FORWARD MOTOR ON, SCREW OK, SCREW NOK, END PROGRAM, END SEQUENCE, STOP MOTOR, READY ]
         /// </summary>
-        /// <returns>bool[8] array with the bit values: [ LEVER, FORWARD MOTOR ON, SCREW OK, SCREW NOK, END PROGRAM, END SEQUENCE, STOP MOTOR, READY ]
+        /// <returns>bool[8] array with the bit values: [ LEVER, FORWARD MOTOR ON, SCREW OK, SCREW NOK, END PROGRAM, END SEQUENCE, STOP MOTOR, READY ]</returns>
         /// <exception cref="SocketException">If the KDU disconnected in the middle of processing the command</exception>
         public async Task<bool[]> GetCn3OutputBitsAsync()
         {
@@ -784,7 +784,7 @@ namespace Kolver
         /// <summary>
         /// Reads the 20 input bits (first 20 modbus discrete inputs), these correspond to CN3 input pins 1 through 20
         /// </summary>
-        /// <returns>bool[8] array with the bit values: [ LEVER, FORWARD MOTOR ON, SCREW OK, SCREW NOK, END PROGRAM, END SEQUENCE, STOP MOTOR, READY ]
+        /// <returns>bool[8] array with the bit values: [ LEVER, FORWARD MOTOR ON, SCREW OK, SCREW NOK, END PROGRAM, END SEQUENCE, STOP MOTOR, READY ]</returns>
         /// <exception cref="SocketException">If the KDU disconnected in the middle of processing the command</exception>
         public async Task<bool[]> GetCn3InputBitsAsync()
         {
@@ -885,7 +885,7 @@ namespace Kolver
         /// </summary>
         /// <returns> Tuple of (ushort[3], ushort[3], ushort[3]). First array contains the positions of Arm 1. Second array contains the positions of Arm 2. Third array contains the target positions for the next screw, if saved. A value of 65535 (0xFFFF) indicates an invalid value (sensor not connected or position not memorized). The units are mm for length, tenths of degrees for angles.</returns>
         /// <exception cref="SocketException">If the KDU disconnected in the middle of processing the command</exception>
-        /// <exception cref="InvalidOperationException">if KDU version is < 40, as K-TLS support was introduced with KDU v40</exception>
+        /// <exception cref="InvalidOperationException">if KDU version is &lt; 40, as K-TLS support was introduced with KDU v40</exception>
         public async Task<Tuple<ushort[], ushort[], ushort[]>> GetKtlsPositionsAsync()
         {
             await WaitForKduMainboardVersion().ConfigureAwait(false);

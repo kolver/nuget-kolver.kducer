@@ -52,6 +52,14 @@ namespace Kolver
         /// <summary>
         /// 
         /// </summary>
+        /// <returns>the torque angle time graph object</returns>
+        public KducerTorqueAngleTimeGraph GetKducerTorqueAngleTimeGraph()
+        {
+            return torqueAngleGraph;
+        }
+        /// <summary>
+        /// 
+        /// </summary>
         /// <returns>final torque result in cNm. if using running torque modes, this is the clamping torque value</returns>
         public ushort GetTorqueResult()
         {
