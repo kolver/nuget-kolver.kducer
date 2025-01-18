@@ -1,7 +1,5 @@
 ﻿// Copyright (c) 2024 Kolver Srl www.kolver.com MIT license
 
-using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Logging.Abstractions;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -52,7 +50,6 @@ namespace Kolver
         private const ushort HR_SPECIAL_EXTENDEDGRAPHS = 8015;
         private static readonly (ushort addr, ushort count) HR_DATE_TIME = (8007, 6);
 
-        private readonly ILogger kduLogger;
         private readonly IPAddress kduIpAddress;
         private readonly int tcpRxTxTimeoutMs;
 
@@ -78,15 +75,13 @@ namespace Kolver
         /// if you need to stop the TCP/IP communications immediately, you must call Dispose() on this object (after which you cannot use it anymore)
         /// </summary>
         /// <param name="kduIpAddress">IP address of the KDU controller</param>
-        /// <param name="loggerFactory">optional, pass to log info, warnings, and errors. pass NullLoggerFactory.Instance if not needed</param>
         /// <param name="tcpRxTxTimeoutMs">tcp tx/rx socket timeout (retransmission interval) with the KDU controller</param>
-        public Kducer(IPAddress kduIpAddress, ILoggerFactory loggerFactory, int tcpRxTxTimeoutMs = defaultRxTxSocketTimeout)
+        public Kducer(IPAddress kduIpAddress, int tcpRxTxTimeoutMs = defaultRxTxSocketTimeout)
         {
             if (kduIpAddress == null)
                 throw new ArgumentNullException(nameof(kduIpAddress));
 
             asyncCommsCts = new CancellationTokenSource();
-            kduLogger = loggerFactory.CreateLogger(typeof(Kducer));
             this.kduIpAddress = kduIpAddress;
             this.tcpRxTxTimeoutMs = tcpRxTxTimeoutMs;
             mbClient = new ReducedModbusTcpClientAsync(kduIpAddress, tcpRxTxTimeoutMs);
@@ -101,37 +96,10 @@ namespace Kolver
         /// if you need to stop the TCP/IP communications immediately, you must call Dispose() on this object (after which you cannot use it anymore)
         /// </summary>
         /// <param name="kduIpAddress">IP address of the KDU controller</param>
-        /// <param name="loggerFactory">optional, pass to log info, warnings, and errors. pass NullLoggerFactory.Instance if not needed</param>
-        /// <param name="tcpRxTxTimeoutMs">tcp tx/rx timeout/interval for individual Modbus TCP exchanges with the KDU controller</param>
-        public Kducer(string kduIpAddress, ILoggerFactory loggerFactory, int tcpRxTxTimeoutMs = defaultRxTxSocketTimeout) :
-            this(IPAddress.Parse(kduIpAddress), loggerFactory, tcpRxTxTimeoutMs) { }
-
-        /// <summary>
-        /// istantiates a Kducer and starts async communications with the KDU controller
-        /// the underlying TCP/IP connection with the KDU starts automatically after instantiating this object
-        /// you can confirm/await the connection via the corresponding IsConnected methods
-        /// if the TCP/IP connection drops, this object will automatically reattempt to connect indefinitely
-        /// TCP/IP communications are stopped ONLY when this object is disposed
-        /// if you need to stop the TCP/IP communications immediately, you must call Dispose() on this object (after which you cannot use it anymore)
-        /// </summary>
-        /// <param name="kduIpAddress">IP address of the KDU controller</param>
         /// <param name="tcpRxTxTimeoutMs">tcp tx/rx timeout/interval for individual Modbus TCP exchanges with the KDU controller</param>
         public Kducer(string kduIpAddress, int tcpRxTxTimeoutMs = defaultRxTxSocketTimeout) :
-            this(IPAddress.Parse(kduIpAddress), NullLoggerFactory.Instance, tcpRxTxTimeoutMs)
-        { }
-        /// <summary>
-        /// istantiates a Kducer and starts async communications with the KDU controller
-        /// the underlying TCP/IP connection with the KDU starts automatically after instantiating this object
-        /// you can confirm/await the connection via the corresponding IsConnected methods
-        /// if the TCP/IP connection drops, this object will automatically reattempt to connect indefinitely
-        /// TCP/IP communications are stopped ONLY when this object is disposed
-        /// if you need to stop the TCP/IP communications immediately, you must call Dispose() on this object (after which you cannot use it anymore)
-        /// </summary>
-        /// <param name="kduIpAddress">IP address of the KDU controller</param>
-        /// <param name="tcpRxTxTimeoutMs">tcp tx/rx timeout/interval for individual Modbus TCP exchanges with the KDU controller</param>
-        public Kducer(IPAddress kduIpAddress, int tcpRxTxTimeoutMs = defaultRxTxSocketTimeout) :
-            this(kduIpAddress, NullLoggerFactory.Instance, tcpRxTxTimeoutMs)
-        { }
+            this(IPAddress.Parse(kduIpAddress), tcpRxTxTimeoutMs) { }
+
         /// <summary>
         /// if true, the screwdriver lever is disabled ("stop motor on") after a new result is detected internally by this library
         /// the screwdriver is automatically re-enabled when you (the user) obtain the tightening result via "GetResultAsync" (unless lockScrewdriverIndefinitelyAfterResult is true)
@@ -252,7 +220,7 @@ namespace Kolver
 
                         if (resultsQueue.Count >= largeResultsQueueWarningThreshold)
                         {
-                            kduLogger.LogWarning("There are {NumberOfKducerTighteningResult} accumulated in the FIFO tightening results queue. Did you forget to dispose this Kducer object?", resultsQueue.Count);
+                            //kduLogger.LogWarning("There are {NumberOfKducerTighteningResult} accumulated in the FIFO tightening results queue. Did you forget to dispose this Kducer object?", resultsQueue.Count);
                             largeResultsQueueWarningThreshold *= 10;
                         }
                     }
@@ -266,7 +234,7 @@ namespace Kolver
                 {
                     if (asyncCommsCts.Token.IsCancellationRequested)
                         return;
-                    kduLogger.LogWarning(tcpError, "TCP connection error. Async communications will continue and reattempt.");
+                    //kduLogger.LogWarning(tcpError, "TCP connection error. Async communications will continue and reattempt.");
                     mbClient.Dispose();
                     mbClient = new ReducedModbusTcpClientAsync(kduIpAddress, tcpRxTxTimeoutMs);
                 }
@@ -274,7 +242,7 @@ namespace Kolver
                 {
                     if (asyncCommsCts.Token.IsCancellationRequested)
                         return;
-                    kduLogger.LogWarning(modbusError, "KDU replied with a Modbus exception. Async communications will continue but the modbus command will NOT be reattempted!");
+                    //kduLogger.LogWarning(modbusError, "KDU replied with a Modbus exception. Async communications will continue but the modbus command will NOT be reattempted!");
                 }
                 catch (Exception e)
                 {
@@ -287,7 +255,7 @@ namespace Kolver
                         mbClient.Dispose();
                         return;
                     }
-                    kduLogger.LogCritical(e, "Unexpected exception. Async communications will stop!");
+                    //kduLogger.LogCritical(e, "Unexpected exception. Async communications will stop!");
                     throw;
                 }
             }
@@ -311,7 +279,7 @@ namespace Kolver
             else
             {
                 InvalidOperationException e = new InvalidOperationException("There are no KDU results available");
-                kduLogger.LogWarning(e, "GetResult was called but the FIFO results queue was empty");
+                //kduLogger.LogWarning(e, "GetResult was called but the FIFO results queue was empty");
                 throw e;
             }
         }

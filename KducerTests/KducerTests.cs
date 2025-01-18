@@ -1,7 +1,6 @@
 // Copyright (c) 2024 Kolver Srl www.kolver.com MIT license
 
 using Kolver;
-using Microsoft.Extensions.Logging.Abstractions;
 using System.Net;
 using System.Net.Sockets;
 
@@ -121,7 +120,7 @@ namespace KducerTests
             [Timeout(15000)]
             public async Task TestSendProgramData()
             {
-                using Kducer kdu = new Kducer(IPAddress.Parse(TestConstants.REAL_LIVE_KDU_IP), NullLoggerFactory.Instance);
+                using Kducer kdu = new Kducer(IPAddress.Parse(TestConstants.REAL_LIVE_KDU_IP));
 
                 await CheckSetProgramMode(kdu);
 
@@ -141,7 +140,7 @@ namespace KducerTests
             [Timeout(30000)]
             public async Task TestGetProgramData()
             {
-                using Kducer kdu = new Kducer(IPAddress.Parse(TestConstants.REAL_LIVE_KDU_IP), NullLoggerFactory.Instance);
+                using Kducer kdu = new Kducer(IPAddress.Parse(TestConstants.REAL_LIVE_KDU_IP));
 
                 ushort prNumber = 200;
                 if (await kdu.GetKduMainboardVersionAsync() < 38)
@@ -185,7 +184,7 @@ namespace KducerTests
             [Timeout(30000)]
             public async Task TestSendMultipleProgramData()
             {
-                using Kducer kdu = new Kducer(IPAddress.Parse(TestConstants.REAL_LIVE_KDU_IP), NullLoggerFactory.Instance);
+                using Kducer kdu = new Kducer(IPAddress.Parse(TestConstants.REAL_LIVE_KDU_IP));
 
                 await CheckSetProgramMode(kdu);
 
@@ -212,7 +211,7 @@ namespace KducerTests
             [Timeout(15000)]
             public async Task TestReadCoils()
             {
-                using Kducer kdu = new Kducer(IPAddress.Parse(TestConstants.REAL_LIVE_KDU_IP), NullLoggerFactory.Instance);
+                using Kducer kdu = new Kducer(IPAddress.Parse(TestConstants.REAL_LIVE_KDU_IP));
 
                 await kdu.IsConnectedWithTimeoutAsync();
 
@@ -246,7 +245,7 @@ namespace KducerTests
             [Timeout(10000)]
             public async Task TestRunScrewdriverUntilResult()
             {
-                using Kducer kdu = new Kducer(IPAddress.Parse(TestConstants.REAL_LIVE_KDU_IP), NullLoggerFactory.Instance);
+                using Kducer kdu = new Kducer(IPAddress.Parse(TestConstants.REAL_LIVE_KDU_IP));
 
                 KducerTighteningProgram pr = new KducerTighteningProgram();
                 pr.SetTorqueAngleMode(1);
@@ -264,7 +263,7 @@ namespace KducerTests
             [Timeout(10000)]
             public async Task TestNewKduV40InputRegistersResult()
             {
-                using Kducer kdu = new Kducer(IPAddress.Parse(TestConstants.REAL_LIVE_KDU_IP), NullLoggerFactory.Instance);
+                using Kducer kdu = new Kducer(IPAddress.Parse(TestConstants.REAL_LIVE_KDU_IP));
 
                 if (await kdu.GetKduMainboardVersionAsync() < 40)
                     return;
@@ -307,7 +306,7 @@ namespace KducerTests
             [Timeout(5000)]
             public async Task TestGetSetDateTimeAsync()
             {
-                using Kducer kdu = new Kducer(IPAddress.Parse(TestConstants.REAL_LIVE_KDU_IP), NullLoggerFactory.Instance);
+                using Kducer kdu = new Kducer(IPAddress.Parse(TestConstants.REAL_LIVE_KDU_IP));
                 ushort version = await kdu.GetKduMainboardVersionAsync();
                 if (version >= 39)
                 {
@@ -330,7 +329,7 @@ namespace KducerTests
             [Timeout(500)]
             public async Task TestCancelGetResultAsync()
             {
-                using Kducer kdu = new Kducer(IPAddress.Parse(TestConstants.REAL_LIVE_KDU_IP), NullLoggerFactory.Instance);
+                using Kducer kdu = new Kducer(IPAddress.Parse(TestConstants.REAL_LIVE_KDU_IP));
                 CancellationTokenSource src = new CancellationTokenSource();
                 Task waitForResult = kdu.GetResultAsync(src.Token);
                 await Task.Delay(100);
@@ -342,7 +341,7 @@ namespace KducerTests
             [Timeout(15000)]
             public async Task TestSelectProgramAsync()
             {
-                using Kducer kdu = new Kducer(IPAddress.Parse(TestConstants.REAL_LIVE_KDU_IP), NullLoggerFactory.Instance);
+                using Kducer kdu = new Kducer(IPAddress.Parse(TestConstants.REAL_LIVE_KDU_IP));
 
                 await CheckSetProgramMode(kdu);
 
@@ -356,7 +355,7 @@ namespace KducerTests
             [Timeout(15000)]
             public async Task TestSelectSequenceAsync()
             {
-                using Kducer kdu = new Kducer(IPAddress.Parse(TestConstants.REAL_LIVE_KDU_IP), NullLoggerFactory.Instance);
+                using Kducer kdu = new Kducer(IPAddress.Parse(TestConstants.REAL_LIVE_KDU_IP));
 
                 // check/set sequence mode
                 KducerControllerGeneralSettings genSetts = await kdu.GetGeneralSettingsDataAsync();
@@ -383,7 +382,7 @@ namespace KducerTests
             [Timeout(1000)]
             public async Task TestGetResultThrowsExceptionWhenDisconnected()
             {
-                using Kducer kdu = new Kducer(IPAddress.Parse(TestConstants.OFF_OR_DC_KDU_IP), NullLoggerFactory.Instance);
+                using Kducer kdu = new Kducer(IPAddress.Parse(TestConstants.OFF_OR_DC_KDU_IP));
                 Assert.IsFalse(kdu.IsConnected());
                 Assert.IsFalse(kdu.IsConnectedWithTimeoutBlocking(250));
                 Assert.IsFalse(await kdu.IsConnectedWithTimeoutAsync(250));
@@ -394,7 +393,7 @@ namespace KducerTests
             [Timeout(60000)]
             public async Task TestSendBarcodeWithResults()
             {
-                using Kducer kdu = new Kducer(IPAddress.Parse(TestConstants.REAL_LIVE_KDU_IP), NullLoggerFactory.Instance);
+                using Kducer kdu = new Kducer(IPAddress.Parse(TestConstants.REAL_LIVE_KDU_IP));
                 Assert.IsTrue(await kdu.IsConnectedWithTimeoutAsync(500));
                 Assert.IsTrue(kdu.IsConnected());
 
@@ -1325,7 +1324,7 @@ namespace KducerTests
             [Timeout(20000)]
             public async Task TestGetResultAfterManuallyRunScrewdriver()
             {
-                using Kducer kdu = new Kducer(IPAddress.Parse(TestConstants.REAL_LIVE_KDU_IP), NullLoggerFactory.Instance);
+                using Kducer kdu = new Kducer(IPAddress.Parse(TestConstants.REAL_LIVE_KDU_IP));
 
                 KducerTighteningProgram pr = new KducerTighteningProgram();
                 pr.SetTorqueAngleMode(1);
@@ -1347,7 +1346,7 @@ namespace KducerTests
             [Timeout(20000)]
             public async Task TestPullCableFromKdu()
             {
-                using Kducer kdu = new Kducer(IPAddress.Parse(TestConstants.REAL_LIVE_KDU_IP), NullLoggerFactory.Instance);
+                using Kducer kdu = new Kducer(IPAddress.Parse(TestConstants.REAL_LIVE_KDU_IP));
                 Assert.IsTrue(await kdu.IsConnectedWithTimeoutAsync(500));
                 Assert.IsTrue(kdu.IsConnected());
                 System.Diagnostics.Debug.WriteLine("Pull the cord in the next 5 seconds");
@@ -1363,7 +1362,7 @@ namespace KducerTests
             [Timeout(30000)]
             public async Task TestAutoReconnectToKdu()
             {
-                using Kducer kdu = new Kducer(IPAddress.Parse(TestConstants.REAL_LIVE_KDU_IP), NullLoggerFactory.Instance);
+                using Kducer kdu = new Kducer(IPAddress.Parse(TestConstants.REAL_LIVE_KDU_IP));
                 Assert.IsTrue(await kdu.IsConnectedWithTimeoutAsync(500));
                 Assert.IsTrue(kdu.IsConnected());
                 System.Diagnostics.Debug.WriteLine("Pull the cord in the next 5 seconds"); 
@@ -1381,7 +1380,7 @@ namespace KducerTests
             [Timeout(10000)]
             public async Task TestSendBarcode()
             {
-                using Kducer kdu = new Kducer(IPAddress.Parse(TestConstants.REAL_LIVE_KDU_IP), NullLoggerFactory.Instance);
+                using Kducer kdu = new Kducer(IPAddress.Parse(TestConstants.REAL_LIVE_KDU_IP));
                 Assert.IsTrue(await kdu.IsConnectedWithTimeoutAsync(500));
                 Assert.IsTrue(kdu.IsConnected());
                 List<string> valid_barcodes = [" ", "ABcd", "1234567890123456", "!@#$%^&*()_-=|\\-", ",,,,", "my unique code"];
@@ -1396,7 +1395,7 @@ namespace KducerTests
             [TestMethod]
             public async Task TestKtlsPositions()
             {
-                using Kducer kdu = new Kducer(IPAddress.Parse(TestConstants.REAL_LIVE_KDU_IP), NullLoggerFactory.Instance);
+                using Kducer kdu = new Kducer(IPAddress.Parse(TestConstants.REAL_LIVE_KDU_IP));
                 Assert.IsTrue(await kdu.IsConnectedWithTimeoutAsync(500));
                 Assert.IsTrue(kdu.IsConnected());
                 for (int i = 0; i < 100; i++)
