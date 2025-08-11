@@ -1,6 +1,7 @@
 // Copyright (c) 2024 Kolver Srl www.kolver.com MIT license
 
 using Kolver;
+using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Sockets;
 
@@ -10,7 +11,7 @@ namespace KducerTests
 {
     static class TestConstants
     {
-        public static string REAL_LIVE_KDU_IP = "192.168.32.103";
+        public static string REAL_LIVE_KDU_IP = "192.168.5.16";
         public static string OFF_OR_DC_KDU_IP = "192.168.32.40";
     }
 
@@ -157,6 +158,8 @@ namespace KducerTests
                 Assert.IsTrue(prRead.getProgramModbusHoldingRegistersAsByteArray().SequenceEqual(prReRead.getProgramModbusHoldingRegistersAsByteArray()));
 
                 KducerTighteningProgramTests.setAllParametersOfKduTighteningProgram(prRead);
+                if (await kdu.GetKduMainboardVersionAsync() > 40)
+                    prRead.SetTotalAngleMax(30000);
 
                 await kdu.SendNewProgramDataAsync(prNumber, prRead);
 
@@ -264,7 +267,6 @@ namespace KducerTests
             public async Task TestNewKduV40InputRegistersResult()
             {
                 using Kducer kdu = new Kducer(IPAddress.Parse(TestConstants.REAL_LIVE_KDU_IP));
-
                 if (await kdu.GetKduMainboardVersionAsync() < 40)
                     return;
                 
@@ -300,6 +302,95 @@ namespace KducerTests
                 Assert.IsTrue(res.GetAngleLimitMax() == 1150);
                 Assert.IsTrue(res.GetTorqueLimitMin() == 300);
                 Assert.IsTrue(res.GetTorqueLimitMax() == 350);
+            }
+
+            [TestMethod]
+            public async Task TestBackToBackProgChangeAndTighten()
+            {
+                using Kducer kdu = new Kducer(IPAddress.Parse(TestConstants.REAL_LIVE_KDU_IP));
+
+                KducerTighteningProgram pr = new KducerTighteningProgram();
+                pr.SetTorqueAngleMode(1);
+                pr.SetAngleTarget(5);
+                pr.SetAngleMax(10);
+                pr.SetAngleMin(0);
+                pr.SetTorqueMin(0);
+                pr.SetTorqueMax(120);
+                await kdu.SendNewProgramDataAsync(1, pr);
+                await kdu.SendNewProgramDataAsync(2, pr);
+
+                for (int i = 0; i < 10; i++) //for (int i = 0; i < 1000; i++)
+                {
+                    try
+                    {
+                        await kdu.SelectProgramNumberAsync((ushort)(i % 2 + 1));
+                        await kdu.RunScrewdriverUntilResultAsync(CancellationToken.None);
+                    }
+                    catch
+                    {
+                        System.Diagnostics.Debug.WriteLine($"Failed after {i} iterations");
+                        throw;
+                    }
+
+                }
+            }
+
+            [TestMethod]
+            public async Task TestRunScrewdriverWithSequenceAutoMode()
+            {
+                using Kducer kdu = new Kducer(IPAddress.Parse(TestConstants.REAL_LIVE_KDU_IP));
+                await kdu.SetHighResGraphModeAsync(true);
+
+                KducerSequenceOfTighteningPrograms seq = new KducerSequenceOfTighteningPrograms([1, 2, 1, 2], [2, 2, 2, 2]);
+                await kdu.SendNewSequenceDataAsync(1, seq);
+                await kdu.SelectSequenceNumberAsync(1);
+
+                KducerTighteningProgram pr = new KducerTighteningProgram();
+                pr.SetTorqueAngleMode(1);
+                pr.SetAngleTarget(5);
+                pr.SetAngleMax(10);
+                pr.SetAngleMin(0);
+                pr.SetTorqueMin(0);
+                pr.SetTorqueMax(120);
+                await kdu.SendNewProgramDataAsync(1, pr);
+                await kdu.SendNewProgramDataAsync(2, pr);
+                for (int j = 0; j < 10; j++)
+                {
+                    try
+                    {
+                        List<KducerTighteningResult> results = await kdu.RunScrewdriverSequenceAutoMultipleTighteningsAsync(CancellationToken.None);
+                        Assert.IsTrue(results.Count == 4, $"Expected 4 results, got {results.Count}");
+                    }
+                    catch
+                    {
+                        System.Diagnostics.Debug.WriteLine($"Failed after {j} iterations");
+                        throw;
+                    }
+                    await Task.Delay(1000);
+                }
+
+                pr.SetTorqueAngleMode(1);
+                pr.SetAngleTarget(1000);
+                pr.SetAngleMax(2000);
+                pr.SetAngleMin(0);
+                pr.SetTorqueMin(0);
+                pr.SetTorqueMax(120);
+                await kdu.SendNewProgramDataAsync(1, pr);
+                await kdu.SendNewProgramDataAsync(2, pr);
+                for (int j = 0; j < 10; j++)
+                {
+                    try
+                    {
+                        List<KducerTighteningResult> results = await kdu.RunScrewdriverSequenceAutoMultipleTighteningsAsync(CancellationToken.None);
+                        Assert.IsTrue(results.Count == 4, $"Expected 4 results, got {results.Count}");
+                    }
+                    catch
+                    {
+                        System.Diagnostics.Debug.WriteLine($"Failed after {j} iterations");
+                        throw;
+                    }
+                    await Task.Delay(1000);
+                }
             }
 
             [TestMethod]
@@ -754,7 +845,7 @@ namespace KducerTests
                 KducerTighteningProgram builtPr = new KducerTighteningProgram("KDS-MT1.5");
                 Assert.AreEqual(300, builtPr.GetFinalSpeed());
 
-                byte[] prFromKdu = [0, 0, 0, 50, 0, 0, 0, 150, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 117, 48, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 44, 0, 0, 2, 88, 0, 0, 0, 0, 0, 0, 0, 0, 8, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 200, 0, 2, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1, 44, 0, 0, 0, 150, 0, 2, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 3, 0, 2, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3, 232, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+                byte[] prFromKdu = [0, 0, 0, 50, 0, 0, 0, 150, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 117, 48, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 44, 0, 0, 2, 88, 0, 0, 0, 0, 0, 0, 0, 0, 8, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 200, 0, 2, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1, 44, 0, 0, 0, 150, 0, 2, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 3, 0, 2, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3, 232, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 117, 48, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
                 builtPr.SetSocket(1);
                 Assert.IsTrue(prFromKdu.SequenceEqual(builtPr.getProgramModbusHoldingRegistersAsByteArray()));
 
@@ -940,7 +1031,7 @@ namespace KducerTests
                 builtSettings = new KducerControllerGeneralSettings(new byte[88]);
                 setMiscParametersOfKduGeneralSettings(builtSettings);
 
-                settingsFromKdu = [0, 1, 0, 0, 0, 100, 0, 1, 0, 1, 0, 2, 0, 0, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 0, 0, 0, 0, 1, 0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 75, 68, 85, 67, 69, 82, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 15, 66, 64, 0, 53, 0, 3, 0, 0, 0, 0];
+                settingsFromKdu = [0, 1, 0, 0, 0, 100, 0, 1, 0, 1, 0, 2, 0, 0, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 0, 0, 0, 0, 1, 0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 75, 68, 85, 67, 69, 82, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 15, 66, 64, 0, 117, 0, 3, 0, 0, 0, 0];
                 for (int i = 0; i < settingsFromKdu.Length; i++)
                     if (settingsFromKdu[i] != builtSettings.getGeneralSettingsModbusHoldingRegistersAsByteArray()[i])
                         Console.WriteLine($"built[{i}]={builtSettings.getGeneralSettingsModbusHoldingRegistersAsByteArray()[i]}, fromKdu[{i}]={settingsFromKdu[i]}");
@@ -1005,6 +1096,7 @@ namespace KducerTests
                 builtGenSett.SetSkipScrewButtonOnOff(true);
                 builtGenSett.SetShowReverseTorqueAndAngleOnOff(true);
                 builtGenSett.SetCn3BitxPrSeqInputSelectionMode(3);
+                builtGenSett.SetAllowProgSeqChangeWithoutPasscodeOnOff(true);
             }
         }
 
@@ -1178,6 +1270,7 @@ namespace KducerTests
             [TestMethod]
             public async Task TestReadFile()
             {
+                await ReadFileTests("../../../v41 file.kdu", 41);
                 await ReadFileTests("../../../v40 file.kdu", 40);
                 await ReadFileTests("../../../v38 file.kdu", 38);
                 await ReadFileTests("../../../v37 file.kdu", 37);
@@ -1189,6 +1282,8 @@ namespace KducerTests
 
                 // settings
                 byte[] settingsbytes = [0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 84, 79, 82, 81, 85, 69, 32, 83, 84, 65, 84, 73, 79, 78, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 7, 161, 32, 0, 0, 0, 0];
+                if (kduVersion >= 41)
+                    settingsbytes[85] = 64; // 7th bit set to 1
                 KducerControllerGeneralSettings settings = new KducerControllerGeneralSettings(settingsbytes);
                 byte[] settingsbytesRead;
                 if (kduVersion == 37)
@@ -1225,6 +1320,8 @@ namespace KducerTests
                     prog.SetReverseSpeed(300);
                     prog.SetMaxReverseTorque(150);
                 }
+                if (kduVersion >= 41)
+                    prog.SetTotalAngleMax(30000);
                 for (ushort i = 1; i <= 8; i++)
                 {
                     if (kduVersion >= 38) prog.SetSocket(i);
@@ -1390,6 +1487,22 @@ namespace KducerTests
                     await kdu.SendBarcodeAsync(barcode);
                     await Task.Delay(1000);
                 }
+            }
+
+            [TestMethod]
+            public async Task TestStreamRealtimeTimeTorqueAngleData()
+            {
+                using Kducer kdu = new Kducer(IPAddress.Parse(TestConstants.REAL_LIVE_KDU_IP));
+                Assert.IsTrue(await kdu.IsConnectedWithTimeoutAsync(500));
+                ConcurrentQueue<Tuple<ushort, ushort, ushort>> rtData = kdu.StartRealtimeTimeTorqueAngleDataStreamForNextTightening();
+                System.Diagnostics.Debug.WriteLine("Starting realtime time-torque-angle stream");
+                while (!kdu.IsRealtimeTorqueAngleDataStreamTaskCompleted())
+                {
+                    Tuple<ushort, ushort, ushort> data;
+                    if (rtData.TryDequeue(out data))
+                        System.Diagnostics.Debug.WriteLine($"Time: {data.Item1}, Torque: {data.Item2}, Angle: {data.Item3}");
+                }
+                System.Diagnostics.Debug.WriteLine($"Completed realtime time-torque-angle stream. Result: {await kdu.GetResultAsync(CancellationToken.None)}");
             }
 
             [TestMethod]

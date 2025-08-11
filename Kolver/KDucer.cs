@@ -21,7 +21,7 @@ namespace Kolver
         : IDisposable
     {
         private const int SHORT_WAIT = 50;
-        private const int PR_SEQ_CHANGE_WAIT = 300;
+        private const int PR_SEQ_CHANGE_WAIT = 400;
         private const int PERMANENT_MEMORY_REWRITE_WAIT = 4000;
         private int POLL_INTERVAL_MS = 100;
         private const int defaultRxTxSocketTimeout = 300; 
@@ -32,6 +32,7 @@ namespace Kolver
         private static readonly (ushort addr, ushort count) IR_ANGLEGRAPH_DATA = (223, 71);
         private static readonly (ushort addr, ushort count) IR_CONTROLLER_SOFTWARE_VERSION = (370, 10);
         private static readonly (ushort addr, ushort count) IR_KTLS_POSITIONS = (393, 9);
+        private static readonly (ushort addr, ushort count) IR_REALTIME_TIME_TORQUE_ANGLE = (405, 3);
         private const ushort COIL_STOP_MOTOR = 34;
         private const ushort COIL_REMOTE_LEVER = 32;
         private const ushort HR_PROGRAM_NR = 7372;
@@ -65,6 +66,9 @@ namespace Kolver
         private Task asyncComms;
         private readonly ConcurrentQueue<KducerTighteningResult> resultsQueue = new ConcurrentQueue<KducerTighteningResult>();
         private readonly ConcurrentQueue<KduUserCmdTaskAsync> userCmdTaskQueue = new ConcurrentQueue<KduUserCmdTaskAsync>();
+        ConcurrentQueue<Tuple<ushort, ushort, ushort>> realtimeTimeTorqueAngleDataQueue;
+        Task realtimeTimeTorqueAngleStreamingTask;
+        CancellationTokenSource realtimeTimeTorqueAngleStreamingCts;
 
         /// <summary>
         /// istantiates a Kducer and starts async communications with the KDU controller
@@ -431,6 +435,31 @@ namespace Kolver
         }
 
         /// <summary>
+        /// Runs screwdriver until the tightening completes according to the KDU parameters of the currently selected program
+        /// </summary>
+        /// <param name="cancellationToken"></param>
+        /// <returns>The KducerTighteningResult object from which you can obtain data about the tightening result</returns>
+        /// <exception cref="ModbusException">If KDU received the command but was unable to process it, for example if the KDU configuration menu is open on the touch screen</exception>
+        /// <exception cref="SocketException">If the KDU disconnected in the middle of processing the command</exception>
+        public async Task<List<KducerTighteningResult>> RunScrewdriverSequenceAutoMultipleTighteningsAsync(CancellationToken cancellationToken)
+        {
+            await WaitForKduMainboardVersion().ConfigureAwait(false);
+
+            CancellationTokenSource cancelRunScrewdriver = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, asyncCommsCts.Token);
+            try
+            {
+                KduUserCmdTaskAsync userCmdTask = new KduUserCmdTaskAsync(UserCmd.RunScrewdriverSequenceAuto, cancelRunScrewdriver.Token, (ushort)(highResGraphsEnabled ? 1 : 0), replaceResultTimestampWithLocalTimestamp);
+                userCmdTask.kduVersion = kduSoftwareVersion;
+                await EnqueueAndWaitForUserCmdToBeProcessedInAsyncCommsLoopAsync(userCmdTask).ConfigureAwait(false);
+                return userCmdTask.tighteningResults;
+            }
+            finally
+            {
+                cancelRunScrewdriver.Dispose();
+            }
+        }
+
+        /// <summary>
         /// Reads the program data of the program currently active in the KDU
         /// </summary>
         /// <returns>the program data</returns>
@@ -506,10 +535,23 @@ namespace Kolver
         /// <param name="newTighteningProgram">The new program data to write</param>
         /// <exception cref="ModbusException">If KDU received the command but was unable to process it, for example if the KDU configuration menu is open on the touch screen</exception>
         /// <exception cref="SocketException">If the KDU disconnected in the middle of processing the command</exception>
-        /// <exception cref="ArgumentException">If the program number is 0, or >64 for controller v37, or >200 for controller >v38.</exception>
+        /// <exception cref="ArgumentException">If the program number is 0, or >64 for controller v37, or >200 for controller >v38, or using invalid total angle limits for controller >v40</exception>
         public async Task SendNewProgramDataAsync(ushort programNumberToSet, KducerTighteningProgram newTighteningProgram, bool writeInPermanentMemory = false)
         {
             await WaitForKduMainboardVersion().ConfigureAwait(false);
+
+            if (kduSoftwareVersion >= 41)
+            {
+                    ushort taThreshold = newTighteningProgram.GetAngleStartAt();
+                    ushort taMode = newTighteningProgram.GetAngleStartAtMode();
+                    ushort totAngMin = newTighteningProgram.GetTotalAngleMin();
+                    ushort totAngMax = newTighteningProgram.GetTotalAngleMax();
+                    if ((totAngMin >= totAngMax || totAngMin > 29999 || totAngMax > 30000 || totAngMax == 0))
+                        if(taMode == 2)
+                            throw new ArgumentException($"Program uses angle count start at mode EXT, but has invalid values for \"Total Angle Min\" {totAngMin} and \"Total Angle Max\" {totAngMax} limits (v41 and later have these new total angle limit parameters). Set them to default values if not using them: SetTotalAngleMin(0) and SetTotalAngleMax(30000)", nameof(newTighteningProgram));
+                        else if (taMode == 0 && taThreshold > 0)
+                            throw new ArgumentException($"Program uses angle count start at mode threshold with threshold {taThreshold}, but has invalid values for \"Total Angle Min\" {totAngMin} and \"Total Angle Max\" {totAngMax} limits (v41 and later have these new total angle limit parameters). Set them to default values if not using them: SetTotalAngleMin(0) and SetTotalAngleMax(30000)", nameof(newTighteningProgram));
+            }
 
             KduUserCmdTaskAsync userCmdTask;
             if (kduSoftwareVersion < 38)
@@ -540,7 +582,7 @@ namespace Kolver
         /// <param name="writeInPermanentMemory">default false. use true only where necessary. not applicable for controllers v37 and earlier (ask kolver for a free update)</param>
         /// <exception cref="ModbusException">If KDU received the command but was unable to process it, for example if the KDU configuration menu is open on the touch screen</exception>
         /// <exception cref="SocketException">If the KDU disconnected in the middle of processing the command</exception>
-        /// <exception cref="ArgumentException">If the program number is 0, or >64 for controller v37, or >200 for controller >v38.</exception>
+        /// <exception cref="ArgumentException">If the program number is 0, or >64 for controller v37, or >200 for controller >v38, or using invalid total angle limits for controller >v40</exception>
         /// <exception cref="ArgumentNullException"></exception>
         public async Task SendMultipleNewProgramsDataAsync(Dictionary<ushort, KducerTighteningProgram> dictionaryProgramNrKeyProgramDataValue, bool writeInPermanentMemory = false)
         {
@@ -548,6 +590,22 @@ namespace Kolver
                 throw new ArgumentNullException(nameof(dictionaryProgramNrKeyProgramDataValue));
 
             await WaitForKduMainboardVersion().ConfigureAwait(false);
+
+            if (kduSoftwareVersion >= 41)
+            {
+                foreach (KeyValuePair<ushort, KducerTighteningProgram> kvp in dictionaryProgramNrKeyProgramDataValue)
+                {
+                    ushort taThreshold = kvp.Value.GetAngleStartAt();
+                    ushort taMode = kvp.Value.GetAngleStartAtMode();
+                    ushort totAngMin = kvp.Value.GetTotalAngleMin();
+                    ushort totAngMax = kvp.Value.GetTotalAngleMax();
+                    if ((totAngMin >= totAngMax || totAngMin > 29999 || totAngMax > 30000 || totAngMax == 0))
+                        if (taMode == 2)
+                            throw new ArgumentException($"Program #{kvp.Key} uses angle count start at mode EXT, but has invalid values for \"Total Angle Min\" {totAngMin} and \"Total Angle Max\" {totAngMax} limits (v41 and later have these new total angle limit parameters). Set them to default values if not using them: SetTotalAngleMin(0) and SetTotalAngleMax(30000)", nameof(dictionaryProgramNrKeyProgramDataValue));
+                        else if (taMode == 0 && taThreshold > 0)
+                            throw new ArgumentException($"Program #{kvp.Key} uses angle count start at mode threshold with threshold {taThreshold}, but has invalid values for \"Total Angle Min\" {totAngMin} and \"Total Angle Max\" {totAngMax} limits (v41 and later have these new total angle limit parameters). Set them to default values if not using them: SetTotalAngleMin(0) and SetTotalAngleMax(30000)", nameof(dictionaryProgramNrKeyProgramDataValue));
+                }
+            }
 
             KduUserCmdTaskAsync userCmdTask;
             if (kduSoftwareVersion < 38)
@@ -770,6 +828,7 @@ namespace Kolver
         /// <param name="newGeneralSettingsData">The new data to write</param>
         /// <exception cref="ModbusException">If KDU received the command but was unable to process it, for example if the KDU configuration menu is open on the touch screen</exception>
         /// <exception cref="SocketException">If the KDU disconnected in the middle of processing the command</exception>
+        /// <exception cref="ArgumentException">If the password longer than 4 digits for controllers v40 and earlier that do not support longer passcodes</exception>"
         /// <exception cref="ArgumentNullException"></exception>
         public async Task SendGeneralSettingsDataAsync(KducerControllerGeneralSettings newGeneralSettingsData, bool writeInPermanentMemory = false)
         {
@@ -777,6 +836,9 @@ namespace Kolver
                 throw new ArgumentNullException(nameof(newGeneralSettingsData));
 
             await WaitForKduMainboardVersion().ConfigureAwait(false);
+
+            if (kduSoftwareVersion < 41 && newGeneralSettingsData.GetPasswordLong() > 9999)
+                throw new ArgumentException($"KDU version {kduSoftwareVersion} does not support passwords longer than 4 digits (> 9999), but a long password ({newGeneralSettingsData.GetPasswordLong()}) was provided in the settings. Please use a short password instead.", nameof(newGeneralSettingsData));
 
             KduUserCmdTaskAsync userCmdTask = new KduUserCmdTaskAsync(UserCmd.SendGeneralSettingsData, asyncCommsCts.Token);
             userCmdTask.kduVersion = kduSoftwareVersion;
@@ -807,6 +869,7 @@ namespace Kolver
         /// <param name="kduFileDataTuple">The new data to write (general settings, programs, sequences), coming from the KducerKduDataFileReader class</param>
         /// <exception cref="ModbusException">If KDU received the command but was unable to process it, for example if the KDU configuration menu is open on the touch screen</exception>
         /// <exception cref="SocketException">If the KDU disconnected in the middle of processing the command</exception>
+        /// <exception cref="ArgumentException">If the program number is 0, or >64 for controller v37, or >200 for controller >v38.</exception>"
         /// <exception cref="ArgumentNullException"></exception>
         public async Task SendAllSettingsProgramsAndSequencesDataAsync(Tuple<KducerControllerGeneralSettings, Dictionary<ushort, KducerTighteningProgram>, Dictionary<ushort, KducerSequenceOfTighteningPrograms>> kduFileDataTuple, bool writeInPermanentMemory = false)
         {
@@ -814,6 +877,25 @@ namespace Kolver
                 throw new ArgumentNullException(nameof(kduFileDataTuple));
 
             await WaitForKduMainboardVersion().ConfigureAwait(false);
+
+            if (kduSoftwareVersion < 41 && kduFileDataTuple.Item1.GetPasswordLong() > 9999)
+                throw new ArgumentException($"KDU version {kduSoftwareVersion} does not support passwords longer than 4 digits (> 9999), but a long password ({kduFileDataTuple.Item1.GetPasswordLong()}) was provided in the settings. Please use a short password instead.", nameof(kduFileDataTuple));
+
+            if (kduSoftwareVersion >= 41)
+            {
+                foreach (KeyValuePair<ushort, KducerTighteningProgram> kvp in kduFileDataTuple.Item2)
+                {
+                    ushort taThreshold = kvp.Value.GetAngleStartAt();
+                    ushort taMode = kvp.Value.GetAngleStartAtMode();
+                    ushort totAngMin = kvp.Value.GetTotalAngleMin();
+                    ushort totAngMax = kvp.Value.GetTotalAngleMax();
+                    if ((totAngMin >= totAngMax || totAngMin > 29999 || totAngMax > 30000 || totAngMax == 0))
+                        if (taMode == 2)
+                            throw new ArgumentException($"Program #{kvp.Key} uses angle count start at mode EXT, but has invalid values for \"Total Angle Min\" {totAngMin} and \"Total Angle Max\" {totAngMax} limits (v41 and later have these new total angle limit parameters). Set them to default values if not using them: SetTotalAngleMin(0) and SetTotalAngleMax(30000)", nameof(kduFileDataTuple));
+                        else if (taMode == 0 && taThreshold > 0)
+                            throw new ArgumentException($"Program #{kvp.Key} uses angle count start at mode threshold with threshold {taThreshold}, but has invalid values for \"Total Angle Min\" {totAngMin} and \"Total Angle Max\" {totAngMax} limits (v41 and later have these new total angle limit parameters). Set them to default values if not using them: SetTotalAngleMin(0) and SetTotalAngleMax(30000)", nameof(kduFileDataTuple));
+                }
+            }
 
             KduUserCmdTaskAsync userCmdTask = new KduUserCmdTaskAsync(UserCmd.SendSettingsAndProgramsAndSequencesData, asyncCommsCts.Token);
             userCmdTask.kduVersion = kduSoftwareVersion;
@@ -930,6 +1012,49 @@ namespace Kolver
             await SetDateTimeAsync(DateTime.Now).ConfigureAwait(false);
         }
 
+        /// <summary>
+        /// this method starts an async task to provide a stream of real time time-torque-angle data points. This task pauses all other Kducer async tasks. 
+        /// This can be used for example to plot a graph of the tightening in real-time. To get the concurrent queue that will be updated by this task, call the GetRealtimeTimeTorqueAngleDataStream() method.
+        /// If all you need is a high resolution graph of a tightening, just use the KducerTighteningResult.GetHighResGraphData() method instead, which returns all data points at 1ms intervals without any missing data.
+        /// This method is only available for KDU controllers v41 and later.
+        /// </summary>
+        /// <exception cref="InvalidOperationException">task already running or incompatible KDU version</exception>
+        /// <returns>a ConcurrentQueue of tuples that will be updated in real-time data when the next tightening starts. The sampling frequency will be at most every 1 millisecond, but may be slower depending the computer and network. Do not expect a uniform sampling rate.</returns>
+        public ConcurrentQueue<Tuple<ushort, ushort, ushort>> StartRealtimeTimeTorqueAngleDataStreamForNextTightening()
+        {
+            if(realtimeTimeTorqueAngleStreamingTask != null && !realtimeTimeTorqueAngleStreamingTask.IsCanceled && !realtimeTimeTorqueAngleStreamingTask.IsCompleted)
+                throw new InvalidOperationException("Realtime time-torque-angle data streaming task is already running. Stop it first with StopRealtimeTimeTorqueAngleDataStreamAsync()");
+            WaitForKduMainboardVersion().Wait();
+            if (kduSoftwareVersion < 41)
+                throw new InvalidOperationException($"KDU version is {kduSoftwareVersion}, update to version 41 or newer to stream realtime time-torque-angle data.");
+
+            realtimeTimeTorqueAngleStreamingCts = new CancellationTokenSource();
+            realtimeTimeTorqueAngleDataQueue = new ConcurrentQueue<Tuple<ushort, ushort, ushort>>();
+            KduUserCmdTaskAsync userCmdTask = new KduUserCmdTaskAsync(UserCmd.StreamRealtimeTimeTorqueAngleData, realtimeTimeTorqueAngleStreamingCts.Token);
+            userCmdTask.realTimeTorqueAngleTimeDataStream = realtimeTimeTorqueAngleDataQueue;
+            realtimeTimeTorqueAngleStreamingTask = EnqueueAndWaitForUserCmdToBeProcessedInAsyncCommsLoopAsync(userCmdTask);
+            return realtimeTimeTorqueAngleDataQueue;
+        }
+        /// <summary>
+        /// stops the realtime time-torque-angle data streaming task that was started with StartRealtimeTimeTorqueAngleDataStreamForNextTighteningAsync()
+        /// </summary>
+        /// <exception cref="InvalidOperationException">task not running</exception>
+        public void StopRealtimeTorqueAngleDataStreamTask()
+        {
+            if (realtimeTimeTorqueAngleStreamingTask == null || realtimeTimeTorqueAngleStreamingTask.IsCanceled || realtimeTimeTorqueAngleStreamingTask.IsCompleted)
+                throw new InvalidOperationException("Realtime time-torque-angle data streaming task is not running. Start it with StartRealtimeTimeTorqueAngleDataStreamForNextTighteningAsync() first.");
+            else
+                realtimeTimeTorqueAngleStreamingCts.Cancel();
+        }
+        /// <summary>
+        /// check if the task from StartRealtimeTimeTorqueAngleDataStreamForNextTightening() is completed
+        /// </summary>
+        public bool IsRealtimeTorqueAngleDataStreamTaskCompleted()
+        {
+            return (realtimeTimeTorqueAngleStreamingTask != null && realtimeTimeTorqueAngleStreamingTask.IsCompleted);
+        }
+
+
         private async Task EnqueueAndWaitForUserCmdToBeProcessedInAsyncCommsLoopAsync(KduUserCmdTaskAsync userCmdTask)
         {
             userCmdTaskQueue.Enqueue(userCmdTask);
@@ -987,7 +1112,10 @@ namespace Kolver
             GetKtlsPositions,
             SetHighResGraphMode,
             GetDateTime,
-            SetDateTime
+            SetDateTime,
+            RunScrewdriverSequenceAuto,
+            StreamRealtimeTimeTorqueAngleData,
+            RunScrewdriverWithStreamRealtimeTimeTorqueAngleData
         }
 
         private class KduUserCmdTaskAsync
@@ -1001,6 +1129,7 @@ namespace Kolver
             internal bool writeHoldingRegistersInPermanentMemory;
             internal Exception exceptionThrownInAsyncTask;
             internal KducerTighteningResult tighteningResult;
+            internal List<KducerTighteningResult> tighteningResults;
             internal KducerTighteningProgram singleTighteningProgram;
             internal Dictionary<ushort, KducerTighteningProgram> multipleTighteningPrograms;
             internal ushort kduVersion;
@@ -1012,6 +1141,7 @@ namespace Kolver
             internal bool[] bits;
             internal ushort[] ktlsPositions;
             internal DateTime dateTime;
+            internal ConcurrentQueue<Tuple<ushort, ushort, ushort>> realTimeTorqueAngleTimeDataStream;
 
             internal KduUserCmdTaskAsync(UserCmd cmd, CancellationToken cancellationToken, ushort payload = 0, bool replaceResultTimestampWithLocalTimestamp = true)
             {
@@ -1055,6 +1185,10 @@ namespace Kolver
 
                         case UserCmd.RunScrewdriver:
                             tighteningResult = await KduAsyncOperationTasks.RunScrewdriver(mbClient, replaceResultTimestampWithLocalTimestamp, payload > 0, cancellationToken).ConfigureAwait(false);
+                            break;
+
+                        case UserCmd.RunScrewdriverSequenceAuto:
+                            tighteningResults = (await KduAsyncOperationTasks.RunScrewdriverSequenceAutoMultipleTightenings(mbClient, kduVersion, replaceResultTimestampWithLocalTimestamp, payload > 0, cancellationToken).ConfigureAwait(false));
                             break;
 
                         case UserCmd.GetTighteningProgramData:
@@ -1164,6 +1298,10 @@ namespace Kolver
                         case UserCmd.SetDateTime:
                             await KduAsyncOperationTasks.SetDateTime(mbClient, dateTime).ConfigureAwait(false);
                             break;
+
+                        case UserCmd.StreamRealtimeTimeTorqueAngleData:
+                            await KduAsyncOperationTasks.StreamRealtimeTimeTorqueAngleData(mbClient, realTimeTorqueAngleTimeDataStream, cancellationToken).ConfigureAwait(false);
+                            break;
                     }
                 }
                 catch (SocketException tcpError)
@@ -1226,7 +1364,29 @@ namespace Kolver
             {
                 if ((await mbClient.ReadHoldingRegistersAsync(Kducer.HR_PROGRAM_NR, 1).ConfigureAwait(false))[1] == prNr)
                     return;
-                await mbClient.WriteSingleRegisterAsync(Kducer.HR_PROGRAM_NR, prNr).ConfigureAwait(false);
+
+                // retry logic covers case of back-to-back calls to RunScrewdriver and SetProgram/SetSequence while also using OpenProtocol with graph traces transmission enabled
+                // failure would just be a Modbus Busy Exception but this is a better user experience
+                int attempt = 0;
+                while (true)
+                {
+                    if (attempt++ > 40)
+                        throw new InvalidOperationException("Failed to set program number, KDU is returning Modbus Exception Busy. This can be due to screwdriver actively running or operator navigating KDU configuration menu.");
+
+                    try
+                    {
+                        await mbClient.WriteSingleRegisterAsync(Kducer.HR_PROGRAM_NR, prNr).ConfigureAwait(false);
+                        break;
+                    }
+                    catch (ModbusException ex)
+                    {
+                        if (ex.GetModbusExceptionCode() != 0x06) // modbus busy exception
+                            throw;
+                    }
+
+                    await Task.Delay(SHORT_WAIT, cancellationToken).ConfigureAwait(false);
+                }
+
                 await Task.Delay(PR_SEQ_CHANGE_WAIT, cancellationToken).ConfigureAwait(false);
                 if ((await mbClient.ReadHoldingRegistersAsync(Kducer.HR_PROGRAM_NR, 1).ConfigureAwait(false))[1] != prNr)
                     throw new InvalidOperationException("Program selection failed. Make sure the KDU is not in SEQUENCE mode and the KDU \"REMOTE PROG\" setting is set to \"CN5 TCP\"");    // this only happens in KDU v37 and prior (without a corresponding modbus exception)
@@ -1242,7 +1402,28 @@ namespace Kolver
             {
                 if ((await mbClient.ReadHoldingRegistersAsync(Kducer.HR_SEQUENCE_NR, 1).ConfigureAwait(false))[1] == seqNr)
                     return;
-                await mbClient.WriteSingleRegisterAsync(Kducer.HR_SEQUENCE_NR, seqNr).ConfigureAwait(false);
+
+                // see SetProgram for why
+                int attempt = 0;
+                while (true)
+                {
+                    if (attempt++ > 40)
+                        throw new InvalidOperationException("Failed to set sequence number, KDU is returning Modbus Exception Busy. This can be due to screwdriver actively running or operator navigating KDU configuration menu.");
+
+                    try
+                    {
+                        await mbClient.WriteSingleRegisterAsync(Kducer.HR_SEQUENCE_NR, seqNr).ConfigureAwait(false);
+                        break;
+                    }
+                    catch (ModbusException ex)
+                    {
+                        if (ex.GetModbusExceptionCode() != 0x06) // modbus busy exception
+                            throw;
+                    }
+
+                    await Task.Delay(SHORT_WAIT, cancellationToken).ConfigureAwait(false);
+                }
+
                 await Task.Delay(PR_SEQ_CHANGE_WAIT, cancellationToken).ConfigureAwait(false);
                 if ((await mbClient.ReadHoldingRegistersAsync(Kducer.HR_SEQUENCE_NR, 1).ConfigureAwait(false))[1] != seqNr)
                     throw new InvalidOperationException("Sequence selection failed. Make sure the KDU is in SEQUENCE mode and the KDU \"REMOTE SEQ\" setting set to \"CN5 TCP\"");    // this only happens in KDU v37 and prior (without a corresponding modbus exception)
@@ -1294,19 +1475,30 @@ namespace Kolver
                 return new Tuple<byte[], byte[]>(torqueGraphBytesHighRes, angleGraphBytesHighRes);
             }
 
+            internal static async Task<bool> WaitForReadyOrTimeout(ReducedModbusTcpClientAsync mbClient, int timeoutMs, CancellationToken cancellationToken)
+            {
+                int attempt = 0;
+                while (true)
+                {
+                    if ((await mbClient.ReadCoilsAsync(7, 1).ConfigureAwait(false))[0] == true)
+                        return true;
+                    await Task.Delay(SHORT_WAIT, cancellationToken).ConfigureAwait(false);
+                    attempt += SHORT_WAIT;
+                    if (attempt >= timeoutMs)
+                        return false;
+                }
+            }
+
             internal static async Task<KducerTighteningResult> RunScrewdriver(ReducedModbusTcpClientAsync mbClient, bool replaceResultTimestampWithLocalTimestamp, bool highResGraphsEnabled, CancellationToken cancellationToken)
             {
                 byte[] angleGraphBytesHighRes = null, torqueGraphBytesHighRes = null;
-                byte new_result_flag_to_clear = (await mbClient.ReadInputRegistersAsync(Kducer.IR_NEW_RESULT_SELFCLEARING_FLAG, 1).ConfigureAwait(false))[1];
-                if (highResGraphsEnabled && new_result_flag_to_clear != 0)
-                    await GetHighResGraphsByteArrays(mbClient, cancellationToken).ConfigureAwait(false);
-
-                while (!cancellationToken.IsCancellationRequested && (await mbClient.ReadInputRegistersAsync(Kducer.IR_NEW_RESULT_SELFCLEARING_FLAG, 1).ConfigureAwait(false))[1] == 0)
+                await WaitForReadyOrTimeout(mbClient, 1000, cancellationToken).ConfigureAwait(false);
+                // run screwdriver, lever coil has to be set periodically or it will safety-stop
+                while ((await mbClient.ReadInputRegistersAsync(Kducer.IR_NEW_RESULT_SELFCLEARING_FLAG, 1).ConfigureAwait(false))[1] == 0)
                 {
                     await mbClient.WriteSingleCoilAsync(Kducer.COIL_REMOTE_LEVER, true).ConfigureAwait(false);
                     await Task.Delay(SHORT_WAIT, cancellationToken).ConfigureAwait(false);
                 }
-                cancellationToken.ThrowIfCancellationRequested();
                 if (highResGraphsEnabled)
                     (torqueGraphBytesHighRes, angleGraphBytesHighRes) = await GetHighResGraphsByteArrays(mbClient, cancellationToken).ConfigureAwait(false);
 
@@ -1314,7 +1506,46 @@ namespace Kolver
                 byte[] resultInputRegisters = await mbClient.ReadInputRegistersAsync(Kducer.IR_RESULT_DATA.addr, Kducer.IR_RESULT_DATA.count).ConfigureAwait(false);
                 byte[] torqueGraphRegisters = await mbClient.ReadInputRegistersAsync(Kducer.IR_TORQUEGRAPH_DATA.addr, Kducer.IR_TORQUEGRAPH_DATA.count).ConfigureAwait(false);
                 byte[] angleGraphRegisters = await mbClient.ReadInputRegistersAsync(Kducer.IR_ANGLEGRAPH_DATA.addr, Kducer.IR_ANGLEGRAPH_DATA.count).ConfigureAwait(false);
+                await WaitForReadyOrTimeout(mbClient, 1000, cancellationToken).ConfigureAwait(false);
                 return new KducerTighteningResult(resultInputRegisters, replaceResultTimestampWithLocalTimestamp, new KducerTorqueAngleTimeGraph(torqueGraphRegisters, angleGraphRegisters, torqueGraphBytesHighRes, angleGraphBytesHighRes));
+            }
+
+            internal static async Task<List<KducerTighteningResult>> RunScrewdriverSequenceAutoMultipleTightenings(ReducedModbusTcpClientAsync mbClient, ushort kduVersion, bool replaceResultTimestampWithLocalTimestamp, bool highResGraphsEnabled, CancellationToken cancellationToken)
+            {
+                // check if in sequence mode and read sequence to determine # of tightenings
+                if ((await mbClient.ReadHoldingRegistersAsync(Kducer.HR_SEQUENCE_PROGRAM_MODE, 1).ConfigureAwait(false))[1] != 1)
+                    throw new InvalidOperationException("KDU is not in SEQUENCE mode, cannot run screwdriver sequence auto.");
+                KducerSequenceOfTighteningPrograms seq = await GetSequenceData( mbClient, await GetActiveSequenceNumber(mbClient).ConfigureAwait(false), kduVersion ).ConfigureAwait(false);
+                int numberOfTightenings = 0;
+                foreach (byte linkMode in seq.getLinkModesAsByteArray())
+                {
+                    if (linkMode == 2) // auto-transition-mode
+                        numberOfTightenings++;
+                }
+                if (numberOfTightenings == 0)
+                    throw new InvalidOperationException("KDU sequence does not contain any auto-transition links, cannot run screwdriver sequence auto.");
+
+                List<KducerTighteningResult> results = new List<KducerTighteningResult>(numberOfTightenings);
+                byte[] angleGraphBytesHighRes = null, torqueGraphBytesHighRes = null;
+                await WaitForReadyOrTimeout(mbClient, 1000, cancellationToken).ConfigureAwait(false);
+                for (int i = 0; i < numberOfTightenings; i++)
+                {
+                    while ((await mbClient.ReadInputRegistersAsync(Kducer.IR_NEW_RESULT_SELFCLEARING_FLAG, 1).ConfigureAwait(false))[1] == 0)
+                    {
+                        await mbClient.WriteSingleCoilAsync(Kducer.COIL_REMOTE_LEVER, true).ConfigureAwait(false);
+                        await Task.Delay(5, cancellationToken).ConfigureAwait(false);
+                    }
+                    if (highResGraphsEnabled)
+                        (torqueGraphBytesHighRes, angleGraphBytesHighRes) = await GetHighResGraphsByteArrays(mbClient, cancellationToken).ConfigureAwait(false);
+
+                    byte[] resultInputRegisters = await mbClient.ReadInputRegistersAsync(Kducer.IR_RESULT_DATA.addr, Kducer.IR_RESULT_DATA.count).ConfigureAwait(false);
+                    byte[] torqueGraphRegisters = await mbClient.ReadInputRegistersAsync(Kducer.IR_TORQUEGRAPH_DATA.addr, Kducer.IR_TORQUEGRAPH_DATA.count).ConfigureAwait(false);
+                    byte[] angleGraphRegisters = await mbClient.ReadInputRegistersAsync(Kducer.IR_ANGLEGRAPH_DATA.addr, Kducer.IR_ANGLEGRAPH_DATA.count).ConfigureAwait(false);
+                    await mbClient.WriteSingleCoilAsync(Kducer.COIL_REMOTE_LEVER, true).ConfigureAwait(false);
+
+                    results.Add(new KducerTighteningResult(resultInputRegisters, replaceResultTimestampWithLocalTimestamp, new KducerTorqueAngleTimeGraph(torqueGraphRegisters, angleGraphRegisters, torqueGraphBytesHighRes, angleGraphBytesHighRes)));
+                }
+                return results;
             }
 
             internal static async Task<KducerTighteningProgram> GetTighteningProgramData(ReducedModbusTcpClientAsync mbClient, ushort programNumber)
@@ -1797,6 +2028,62 @@ namespace Kolver
                 dateTimeRegsAsBytes[9] = (byte)dateTime.Minute;
                 dateTimeRegsAsBytes[11] = (byte)dateTime.Second;
                 await mbClient.WriteMultipleRegistersAsync(Kducer.HR_DATE_TIME.addr, dateTimeRegsAsBytes).ConfigureAwait(false);
+            }
+
+            internal static async Task StreamRealtimeTimeTorqueAngleData(ReducedModbusTcpClientAsync mbClient, ConcurrentQueue<Tuple<ushort,ushort,ushort>> dataQueue, CancellationToken cancellationToken)
+            {
+                // wait for a tightening to start
+                while (true)
+                {
+                    Task interval = Task.Delay(1, cancellationToken);
+                    if ((await mbClient.ReadCoilsAsync(1, 1).ConfigureAwait(false))[0])
+                        break;
+
+                    await interval.ConfigureAwait(false);
+                }
+                // stream the data
+                byte[] prevData = new byte[6];
+                Task timeout = null;
+                while (true)
+                {
+                    Task interval = Task.Delay(1, cancellationToken); // the most the KDU can provide is 1ms samples
+                    byte[] rtData = await mbClient.ReadInputRegistersAsync(Kducer.IR_REALTIME_TIME_TORQUE_ANGLE.addr, Kducer.IR_REALTIME_TIME_TORQUE_ANGLE.count).ConfigureAwait(false);
+
+                    // during "downshift" speed change, the screwdriver stops briefly, and the data will not change. so, we wait for 250ms with the same data to make sure it's stopped
+                    bool timingOut = true;
+                    for (int i = 0; i < 6; i++)
+                    {
+                        if (rtData[i] != prevData[i])
+                        {
+                            timingOut = false;
+                            timeout = null;
+                        }
+                        prevData[i] = rtData[i];
+                    }
+
+                    if (timingOut)
+                    {
+                        if (timeout == null)
+                            timeout = Task.Delay(250, cancellationToken);
+                        else if (timeout.IsCompleted)
+                            return;
+                        else
+                            cancellationToken.ThrowIfCancellationRequested();
+                    }
+                    else
+                    {
+                        if (rtData[0] != 0 || rtData[1] != 0) // when tightening is finished, time index returns to zero, skip this data point
+                        {
+                            dataQueue.Enqueue(new Tuple<ushort, ushort, ushort>(
+                                        ModbusByteConversions.TwoModbusBigendianBytesToUshort(rtData, 0), // time in ms
+                                        ModbusByteConversions.TwoModbusBigendianBytesToUshort(rtData, 2), // torque in mNm (KDS 15Nm and below) or cNm (KDS 20Nm and above)
+                                        ModbusByteConversions.TwoModbusBigendianBytesToUshort(rtData, 4)  // angle in degrees
+                                    ));
+                        }
+                    }
+
+                    await interval.ConfigureAwait(false);
+                }
             }
         }
 

@@ -9,12 +9,12 @@ dotnet add package Kolver.Kducer
 ```
 ## Usage
 Every public method is commented, so if you are using Visual Studio you can see the documentation via IntelliSense as you code.
+Also see the Examples folder.
 ### Instantiate a Kducer client and verify if connection was successful
 ```C#
 // create a Kducer client. each KDU-1A should have its own client
 // The cyclic async TCP/IP communication loop is started immediately after instantiation automatically in the background
-// You can optionally pass a ILoggerFactory for logging errors
-Kducer kdu = new Kducer("192.168.32.103", NullLoggerFactory.Instance);
+Kducer kdu = new Kducer("192.168.32.103");
 // the next two lines don't initiate a connection (Kducer connects automatically), they just verify if the connection was successful
 bool success = await kdu.IsConnectedWithTimeoutAsync(500); // waits up to 500ms for TCP/IP connection to be estabilished
 bool success = kdu.IsConnectedWithTimeoutBlocking(500); // blocks up to 500ms for TCP/IP connection to be established

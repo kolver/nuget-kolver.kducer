@@ -74,6 +74,18 @@ namespace Kolver
                 throw new ArgumentException("4 digits max", nameof(password));
             ModbusByteConversions.CopyUshortToBytesAsModbusBigendian(password, controllerGeneralSettingsHoldingRegistersAsByteArray, 4);
         }
+        /// <summary>(KDU-1A v41 and newer only) password to access menu. 9 digits max. must also set PasswordOnOff to ON to enable the password.</summary>
+        public uint GetPasswordLong()
+        {
+            return ModbusByteConversions.FourModbusBigendianBytesToUint(controllerGeneralSettingsHoldingRegistersAsByteArray, 2);
+        }
+        /// <summary>(KDU-1A v41 and newer only) password to access menu. 9 digits max. must also set PasswordOnOff to ON to enable the password.</summary>
+        public void SetPasswordLong(uint password)
+        {
+            if (password > 999999999)
+                throw new ArgumentException("9 digits max", nameof(password));
+            ModbusByteConversions.CopyUintToBytesAsModbusBigendian(password, controllerGeneralSettingsHoldingRegistersAsByteArray, 2);
+        }
         /// <summary>false = password to access menu is off, true = password to access menu is on</summary>
         public bool GetPasswordOnOff()
         {
@@ -341,6 +353,16 @@ namespace Kolver
         public void SetShowReverseTorqueAndAngleOnOff(bool onOff)
         {
             SetMiscConfBit(5, onOff);
+        }
+        /// <summary>(KDU-1A v41 and newer only) part of misc conf register</summary>
+        public bool GetAllowProgSeqChangeWithoutPasscodeOnOff()
+        {
+            return GetMiscConfBit(6);
+        }
+        /// <summary>(KDU-1A v41 and newer only) part of misc conf register</summary>
+        public void SetAllowProgSeqChangeWithoutPasscodeOnOff(bool onOff)
+        {
+            SetMiscConfBit(6, onOff);
         }
         /// <summary>0 = binary (default), 1 = discrete, 2..6 = pnp sens x2 .. x6 for tool change accessory (PNP sensors) when connected to CN3</summary>
         public ushort GetCn3BitxPrSeqInputSelectionMode()

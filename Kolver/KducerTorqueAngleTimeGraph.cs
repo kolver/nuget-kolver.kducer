@@ -103,7 +103,7 @@ namespace Kolver
         }
 
         /// <summary>returns a copy of the data (original data will not be modified)</summary>
-        /// <returns>the angle data series as a ushort array</returns>
+        /// <returns>the torque data series as a ushort array</returns>
         /// <param name="highResIfAvailable">if true and the high-resolution data series is available, return it</param>
         public ushort[] getTorqueSeries(bool highResIfAvailable = true)
         {

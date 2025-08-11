@@ -76,6 +76,7 @@ namespace Kolver
             settings.SetCn3BitxPrSeqInputSelectionMode(data[150]);
             settings.SetKtlsArm1Model((byte)(data[151] & 0xF));
             settings.SetKtlsArm1Model((byte)(data[151] >> 4));
+            settings.SetAllowProgSeqChangeWithoutPasscodeOnOff(data[176] == 1);
 
             // read sequences
             int seqLen = 32;
@@ -151,7 +152,9 @@ namespace Kolver
                 prog.SetRamp(ReadUshortFromBytes(data, firstProgIdx + 224 * progIdx + 47));
                 prog.SetRuntime(ReadUshortFromBytes(data, firstProgIdx + 224 * progIdx + 51));
                 prog.SetMintime(ReadUshortFromBytes(data, firstProgIdx + 224 * progIdx + 55));
+                prog.SetTotalAngleMin(ReadUshortFromBytes(data, firstProgIdx + 224 * progIdx + 57));
                 prog.SetMaxtime(ReadUshortFromBytes(data, firstProgIdx + 224 * progIdx + 59));
+                prog.SetTotalAngleMax(ReadUshortFromBytes(data, firstProgIdx + 224 * progIdx + 61));
                 prog.SetMaxPowerPhaseMode(data[firstProgIdx + 224 * progIdx + 63]);
                 prog.SetMaxPowerPhaseTime(ReadUshortFromBytes(data, firstProgIdx + 224 * progIdx + 64));
                 prog.SetMaxPowerPhaseAngle(ReadUshortFromBytes(data, firstProgIdx + 224 * progIdx + 68));
