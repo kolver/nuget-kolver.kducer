@@ -128,6 +128,12 @@ namespace KducerTests
                 KducerTighteningProgram pr = new KducerTighteningProgram();
                 pr.SetTorqueAngleMode(1);
                 pr.SetAngleTarget(1000);
+                if ((await kdu.GetKduMainboardVersionAsync()) < 41)
+                {
+                    pr.SetTotalAngleMax(0);
+                    pr.SetTotalAngleMin(0);
+                }
+                await kdu.SelectProgramNumberAsync(1);
 
                 await kdu.SendNewProgramDataAsync(1, pr);
                 KducerTighteningProgram prRead = await kdu.GetActiveTighteningProgramDataAsync();
@@ -194,6 +200,11 @@ namespace KducerTests
                 KducerTighteningProgram pr = new KducerTighteningProgram();
                 pr.SetTorqueAngleMode(1);
                 pr.SetAngleTarget(1000);
+                if ((await kdu.GetKduMainboardVersionAsync()) < 41)
+                {
+                    pr.SetTotalAngleMax(0);
+                    pr.SetTotalAngleMin(0);
+                }
 
                 Dictionary<ushort, KducerTighteningProgram> prDic = new();
                 ushort maxProg = 200;
@@ -310,6 +321,7 @@ namespace KducerTests
                 using Kducer kdu = new Kducer(IPAddress.Parse(TestConstants.REAL_LIVE_KDU_IP));
 
                 KducerTighteningProgram pr = new KducerTighteningProgram();
+                pr.SetFinalSpeed(50);
                 pr.SetTorqueAngleMode(1);
                 pr.SetAngleTarget(5);
                 pr.SetAngleMax(10);
@@ -346,6 +358,7 @@ namespace KducerTests
                 await kdu.SelectSequenceNumberAsync(1);
 
                 KducerTighteningProgram pr = new KducerTighteningProgram();
+                pr.SetFinalSpeed(50);
                 pr.SetTorqueAngleMode(1);
                 pr.SetAngleTarget(5);
                 pr.SetAngleMax(10);
@@ -369,6 +382,7 @@ namespace KducerTests
                     await Task.Delay(1000);
                 }
 
+                pr.SetFinalSpeed(100);
                 pr.SetTorqueAngleMode(1);
                 pr.SetAngleTarget(1000);
                 pr.SetAngleMax(2000);
@@ -687,6 +701,8 @@ namespace KducerTests
             {
                 using Kducer kdu = new Kducer(IPAddress.Parse(TestConstants.REAL_LIVE_KDU_IP));
 
+                ushort kduVer = await kdu.GetKduMainboardVersionAsync();
+
                 Tuple<KducerControllerGeneralSettings, Dictionary<ushort, KducerTighteningProgram>, Dictionary<ushort, KducerSequenceOfTighteningPrograms>> sentData, reReadKduData;
 
                 // send file, read, compare
@@ -695,11 +711,23 @@ namespace KducerTests
                 await kdu.SendAllSettingsProgramsAndSequencesDataAsync(sentData);
                 reReadKduData = await kdu.GetSettingsAndProgramsAndSequencesDataAsync();
 
-                Assert.IsTrue(sentData.Item1.getGeneralSettingsModbusHoldingRegistersAsByteArray().SequenceEqual(reReadKduData.Item1.getGeneralSettingsModbusHoldingRegistersAsByteArray()));
+                byte[] read = reReadKduData.Item1.getGeneralSettingsModbusHoldingRegistersAsByteArray();
+                byte[] sent = sentData.Item1.getGeneralSettingsModbusHoldingRegistersAsByteArray();
+                for (int i = 0; i < read.Length; i++)
+                    if (read[i] != sent[i])
+                        Console.WriteLine($"read[{i}]={read[i]}, sent[{i}]={sent[i]}");
 
+                if (kduVer <= 37) 
+                    Assert.IsTrue(sentData.Item1.getGeneralSettingsModbusHoldingRegistersAsByteArray_KDUv37andPrior().SequenceEqual(reReadKduData.Item1.getGeneralSettingsModbusHoldingRegistersAsByteArray_KDUv37andPrior()));
+                else if (kduVer == 38)
+                    Assert.IsTrue(sentData.Item1.getGeneralSettingsModbusHoldingRegistersAsByteArray_KDUv38().SequenceEqual(reReadKduData.Item1.getGeneralSettingsModbusHoldingRegistersAsByteArray_KDUv38()));
+                else if (kduVer == 39)
+                    Assert.IsTrue(sentData.Item1.getGeneralSettingsModbusHoldingRegistersAsByteArray_KDUv39().SequenceEqual(reReadKduData.Item1.getGeneralSettingsModbusHoldingRegistersAsByteArray_KDUv39()));
+                else
+                    Assert.IsTrue(sentData.Item1.getGeneralSettingsModbusHoldingRegistersAsByteArray().SequenceEqual(reReadKduData.Item1.getGeneralSettingsModbusHoldingRegistersAsByteArray()));
                 // Assert.IsTrue(sentData.Item2.Count == reReadKduData.Item2.Count); this is not true if file is v37 and KDU is v38
                 for (ushort i = 1; i <= sentData.Item2.Keys.Max(); i++)
-                    Assert.IsTrue(sentData.Item2[i].getProgramModbusHoldingRegistersAsByteArray().SequenceEqual(reReadKduData.Item2[i].getProgramModbusHoldingRegistersAsByteArray()));
+                        Assert.IsTrue(sentData.Item2[i].getProgramModbusHoldingRegistersAsByteArray().SequenceEqual(reReadKduData.Item2[i].getProgramModbusHoldingRegistersAsByteArray()));
 
                 // Assert.IsTrue(sentData.Item3.Count == reReadKduData.Item3.Count); this is not true if file is v37 and KDU is v38
                 for (ushort i = 1; i < sentData.Item3.Keys.Max(); i++)
@@ -712,7 +740,7 @@ namespace KducerTests
 
                 // send file, read, compare
                 sentData = await KducerKduDataFileReader.ReadKduDataFile("../../../v38 file.kdu");
-                if (await kdu.GetKduMainboardVersionAsync() <= 37)
+                if (kduVer <= 37)
                 {
                     for (ushort i = 65; i <= 200; i++)
                         sentData.Item2.Remove(i);
@@ -726,8 +754,12 @@ namespace KducerTests
                 await kdu.SendAllSettingsProgramsAndSequencesDataAsync(sentData);
                 reReadKduData = await kdu.GetSettingsAndProgramsAndSequencesDataAsync();
 
-                if (await kdu.GetKduMainboardVersionAsync() <= 37)
+                if (kduVer <= 37)
                     Assert.IsTrue(sentData.Item1.getGeneralSettingsModbusHoldingRegistersAsByteArray_KDUv37andPrior().SequenceEqual(reReadKduData.Item1.getGeneralSettingsModbusHoldingRegistersAsByteArray_KDUv37andPrior()));
+                else if (kduVer == 38)
+                    Assert.IsTrue(sentData.Item1.getGeneralSettingsModbusHoldingRegistersAsByteArray_KDUv38().SequenceEqual(reReadKduData.Item1.getGeneralSettingsModbusHoldingRegistersAsByteArray_KDUv38()));
+                else if (kduVer == 39)
+                    Assert.IsTrue(sentData.Item1.getGeneralSettingsModbusHoldingRegistersAsByteArray_KDUv39().SequenceEqual(reReadKduData.Item1.getGeneralSettingsModbusHoldingRegistersAsByteArray_KDUv39()));
                 else
                     Assert.IsTrue(sentData.Item1.getGeneralSettingsModbusHoldingRegistersAsByteArray().SequenceEqual(reReadKduData.Item1.getGeneralSettingsModbusHoldingRegistersAsByteArray()));
 

@@ -53,7 +53,10 @@ namespace Kolver
             // read settings
             KducerControllerGeneralSettings settings = new KducerControllerGeneralSettings();
             settings.SetLanguage(ReadUshortFromBytes(data, 30));
-            settings.SetPassword(ReadUshortFromBytes(data, 33));
+            if (data[0] < 0x0d) // v41
+                settings.SetPassword(ReadUshortFromBytes(data, 33));
+            else
+                settings.SetPasswordLong(ReadUintFromBytes(data, 33));
             settings.SetPasswordOnOff(data[37] == 1);
             settings.SetCmdOkEscResetSource(data[38]);
             settings.SetRemoteProgramSource(data[39]);
@@ -76,7 +79,10 @@ namespace Kolver
             settings.SetCn3BitxPrSeqInputSelectionMode(data[150]);
             settings.SetKtlsArm1Model((byte)(data[151] & 0xF));
             settings.SetKtlsArm1Model((byte)(data[151] >> 4));
-            settings.SetAllowProgSeqChangeWithoutPasscodeOnOff(data[176] == 1);
+            if (data[0] < 0x0d) // v41
+                settings.SetAllowProgSeqChangeWithoutPasscodeOnOff(false);
+            else
+                settings.SetAllowProgSeqChangeWithoutPasscodeOnOff(data[176] == 1);
 
             // read sequences
             int seqLen = 32;
