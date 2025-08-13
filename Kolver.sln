@@ -7,6 +7,10 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "KducerTests", "KducerTests\
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Kolver.Kducer", "Kolver\Kolver.Kducer.csproj", "{521E0D05-EEBA-4E94-BB72-A067790A17AD}"
 EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Examples", "Examples", "{02EA681E-C7D8-13C7-8484-4AC65E1B71E8}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TorqueGraphWinForms", "Examples\TorqueGraphWinForms\TorqueGraphWinForms.csproj", "{1DA9E8C5-9BE9-4832-AE48-F29458DAE212}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -21,9 +25,16 @@ Global
 		{521E0D05-EEBA-4E94-BB72-A067790A17AD}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{521E0D05-EEBA-4E94-BB72-A067790A17AD}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{521E0D05-EEBA-4E94-BB72-A067790A17AD}.Release|Any CPU.Build.0 = Release|Any CPU
+		{1DA9E8C5-9BE9-4832-AE48-F29458DAE212}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{1DA9E8C5-9BE9-4832-AE48-F29458DAE212}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{1DA9E8C5-9BE9-4832-AE48-F29458DAE212}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{1DA9E8C5-9BE9-4832-AE48-F29458DAE212}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{1DA9E8C5-9BE9-4832-AE48-F29458DAE212} = {02EA681E-C7D8-13C7-8484-4AC65E1B71E8}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {96320C76-EFAA-4324-8A3A-BCF07ECD6C2E}
