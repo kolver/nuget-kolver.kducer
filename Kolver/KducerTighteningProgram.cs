@@ -54,7 +54,7 @@ namespace Kolver
             if (screwdriverModel == null)
                 throw new ArgumentNullException(nameof(screwdriverModel));
 
-            if (screwdriverModel.StartsWith("KDS-MT1.5", StringComparison.Ordinal))
+            if (screwdriverModel.StartsWith("KDS-MT1.5", StringComparison.Ordinal) || screwdriverModel.StartsWith("KDS-MT15", StringComparison.Ordinal) || screwdriverModel.StartsWith(ScrewdriverBaseModel.NONE_CONNECTED, StringComparison.Ordinal))
                 defaultProgramBytesForKDSMT15.CopyTo(this.tighteningProgramHoldingRegistersAsByteArray, 0);
             else if (screwdriverModel.StartsWith("KDS-PL6", StringComparison.Ordinal))
                 defaultProgramBytesForKDSPL6.CopyTo(this.tighteningProgramHoldingRegistersAsByteArray, 0);
@@ -79,6 +79,24 @@ namespace Kolver
             else
                 throw new ArgumentException("Invalid model, choose from: KDS-MT1.5 (default), KDS-PL6, KDS-PL10, KDS-PL15, KDS-PL20, KDS-PL30, KDS-PL35, KDS-PL45, KDS-PL50, KDS-PL70, KDS-PL3");
         }
+        /// <summary>
+        /// creates a program with valid default values for a screwdriver
+        /// </summary>
+        /// <param name="screwdriver">a screwdriver type returned from "GetScrewdriverInfo"</param>
+        public KducerTighteningProgram(KdsScrewdriver screwdriver) :
+            this(screwdriver?.BaseModel.Name ?? throw new ArgumentNullException(nameof(screwdriver))) { }
+        /// <summary>
+        /// creates a program with valid default values for a screwdriver
+        /// </summary>
+        /// <param name="screwdriver"></param>
+        public KducerTighteningProgram(ScrewdriverBaseModel screwdriver) :
+            this(screwdriver?.Name ?? throw new ArgumentNullException(nameof(screwdriver))) { }
+        /// <summary>
+        /// creates a program with valid default values for a screwdriver
+        /// </summary>
+        /// <param name="screwdriver"></param>
+        public KducerTighteningProgram(ScrewdriverBaseModelId screwdriver) :
+            this(ScrewdriverBaseModel.Get(screwdriver)) { }
         /// <summary>in cNm</summary>
         public ushort GetTorqueTarget()
         {

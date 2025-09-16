@@ -33,6 +33,8 @@ namespace Kolver
         private static readonly (ushort addr, ushort count) IR_CONTROLLER_SOFTWARE_VERSION = (370, 10);
         private static readonly (ushort addr, ushort count) IR_KTLS_POSITIONS = (393, 9);
         private static readonly (ushort addr, ushort count) IR_REALTIME_TIME_TORQUE_ANGLE = (405, 3);
+        private static readonly (ushort addr, ushort count) IR_SCREWDRIVER_CYCLES_AND_LASTCALIBRATION_DATA = (410, 7);
+        private static readonly (ushort addr, ushort count) IR_SCREWDRIVER_INFO = (125, 4);
         private const ushort COIL_STOP_MOTOR = 34;
         private const ushort COIL_REMOTE_LEVER = 32;
         private const ushort HR_PROGRAM_NR = 7372;
@@ -67,8 +69,8 @@ namespace Kolver
         private readonly ConcurrentQueue<KducerTighteningResult> resultsQueue = new ConcurrentQueue<KducerTighteningResult>();
         private readonly ConcurrentQueue<KduUserCmdTaskAsync> userCmdTaskQueue = new ConcurrentQueue<KduUserCmdTaskAsync>();
         ConcurrentQueue<Tuple<ushort, ushort, ushort>> realtimeTimeTorqueAngleDataQueue;
-        Task realtimeTimeTorqueAngleStreamingTask;
-        CancellationTokenSource realtimeTimeTorqueAngleStreamingCts;
+        private Task realtimeTimeTorqueAngleStreamingTask;
+        private CancellationTokenSource realtimeTimeTorqueAngleStreamingCts;
 
         /// <summary>
         /// istantiates a Kducer and starts async communications with the KDU controller
@@ -234,7 +236,7 @@ namespace Kolver
                     mbClient.Dispose();
                     return;
                 }
-                catch (SocketException tcpError)
+                catch (SocketException)
                 {
                     if (asyncCommsCts.Token.IsCancellationRequested)
                         return;
@@ -242,13 +244,13 @@ namespace Kolver
                     mbClient.Dispose();
                     mbClient = new ReducedModbusTcpClientAsync(kduIpAddress, tcpRxTxTimeoutMs);
                 }
-                catch (ModbusException modbusError)
+                catch (ModbusException)
                 {
                     if (asyncCommsCts.Token.IsCancellationRequested)
                         return;
                     //kduLogger.LogWarning(modbusError, "KDU replied with a Modbus exception. Async communications will continue but the modbus command will NOT be reattempted!");
                 }
-                catch (Exception e)
+                catch (Exception)
                 {
                     try
                     {
@@ -536,8 +538,12 @@ namespace Kolver
         /// <exception cref="ModbusException">If KDU received the command but was unable to process it, for example if the KDU configuration menu is open on the touch screen</exception>
         /// <exception cref="SocketException">If the KDU disconnected in the middle of processing the command</exception>
         /// <exception cref="ArgumentException">If the program number is 0, or >64 for controller v37, or >200 for controller >v38, or using invalid total angle limits for controller >v40</exception>
+        /// <exception cref="ArgumentNullException"></exception>
         public async Task SendNewProgramDataAsync(ushort programNumberToSet, KducerTighteningProgram newTighteningProgram, bool writeInPermanentMemory = false)
         {
+            if (newTighteningProgram == null)
+                throw new ArgumentNullException(nameof(newTighteningProgram));
+
             await WaitForKduMainboardVersion().ConfigureAwait(false);
 
             if (kduSoftwareVersion >= 41)
@@ -1028,6 +1034,7 @@ namespace Kolver
             if (kduSoftwareVersion < 41)
                 throw new InvalidOperationException($"KDU version is {kduSoftwareVersion}, update to version 41 or newer to stream realtime time-torque-angle data.");
 
+            realtimeTimeTorqueAngleStreamingCts?.Dispose(); 
             realtimeTimeTorqueAngleStreamingCts = new CancellationTokenSource();
             realtimeTimeTorqueAngleDataQueue = new ConcurrentQueue<Tuple<ushort, ushort, ushort>>();
             KduUserCmdTaskAsync userCmdTask = new KduUserCmdTaskAsync(UserCmd.StreamRealtimeTimeTorqueAngleData, realtimeTimeTorqueAngleStreamingCts.Token);
@@ -1052,6 +1059,17 @@ namespace Kolver
         public bool IsRealtimeTorqueAngleDataStreamTaskCompleted()
         {
             return (realtimeTimeTorqueAngleStreamingTask != null && realtimeTimeTorqueAngleStreamingTask.IsCompleted);
+        }
+
+        /// <summary>
+        /// returns an object with information about the screwdriver connected to the KDU controller
+        /// </summary>
+        /// <returns>a KdsScrewdriver object representing the currently connected screwdriver</returns>
+        public async Task<KdsScrewdriver> GetScrewdriverInfoAsync()
+        {
+            KduUserCmdTaskAsync userCmdTask = new KduUserCmdTaskAsync(UserCmd.GetScrewdriverInfo, asyncCommsCts.Token);
+            await EnqueueAndWaitForUserCmdToBeProcessedInAsyncCommsLoopWithResultAsync(userCmdTask).ConfigureAwait(false);
+            return userCmdTask.screwdriverInfo;
         }
 
 
@@ -1115,7 +1133,8 @@ namespace Kolver
             SetDateTime,
             RunScrewdriverSequenceAuto,
             StreamRealtimeTimeTorqueAngleData,
-            RunScrewdriverWithStreamRealtimeTimeTorqueAngleData
+            RunScrewdriverWithStreamRealtimeTimeTorqueAngleData,
+            GetScrewdriverInfo
         }
 
         private class KduUserCmdTaskAsync
@@ -1142,6 +1161,7 @@ namespace Kolver
             internal ushort[] ktlsPositions;
             internal DateTime dateTime;
             internal ConcurrentQueue<Tuple<ushort, ushort, ushort>> realTimeTorqueAngleTimeDataStream;
+            internal KdsScrewdriver screwdriverInfo;
 
             internal KduUserCmdTaskAsync(UserCmd cmd, CancellationToken cancellationToken, ushort payload = 0, bool replaceResultTimestampWithLocalTimestamp = true)
             {
@@ -1301,6 +1321,10 @@ namespace Kolver
 
                         case UserCmd.StreamRealtimeTimeTorqueAngleData:
                             await KduAsyncOperationTasks.StreamRealtimeTimeTorqueAngleData(mbClient, realTimeTorqueAngleTimeDataStream, cancellationToken).ConfigureAwait(false);
+                            break;
+
+                        case UserCmd.GetScrewdriverInfo:
+                            screwdriverInfo = await KduAsyncOperationTasks.GetScrewdriverInfo(mbClient).ConfigureAwait(false);
                             break;
                     }
                 }
@@ -2085,6 +2109,31 @@ namespace Kolver
                     await interval.ConfigureAwait(false);
                 }
             }
+
+            internal static async Task<KdsScrewdriver> GetScrewdriverInfo(ReducedModbusTcpClientAsync mbClient)
+            {
+                byte[] screwdriverInfoRegs = await mbClient.ReadInputRegistersAsync(Kducer.IR_SCREWDRIVER_INFO.addr, Kducer.IR_SCREWDRIVER_INFO.count).ConfigureAwait(false);
+                ushort model = ModbusByteConversions.TwoModbusBigendianBytesToUshort(screwdriverInfoRegs, 0);
+                uint serialNumber = ModbusByteConversions.FourModbusBigendianBytesToUint(screwdriverInfoRegs, 2);
+                ushort fatC = ModbusByteConversions.TwoModbusBigendianBytesToUshort(screwdriverInfoRegs, 6);
+
+                uint cycles = 0xFFFFFFFF;
+                uint cyclesAtLastCalibration = 0xFFFFFFFF;
+                ushort lastCalibrationDate_YY = 0xFFFF, lastCalibrationDate_MM = 0xFFFF, lastCalibrationDate_DD = 0xFFFF;
+                try
+                {
+                    screwdriverInfoRegs = await mbClient.ReadInputRegistersAsync(Kducer.IR_SCREWDRIVER_CYCLES_AND_LASTCALIBRATION_DATA.addr, Kducer.IR_SCREWDRIVER_CYCLES_AND_LASTCALIBRATION_DATA.count).ConfigureAwait(false);
+                    cycles = ModbusByteConversions.FourModbusBigendianBytesToUint(screwdriverInfoRegs, 0);
+                    cyclesAtLastCalibration = ModbusByteConversions.FourModbusBigendianBytesToUint(screwdriverInfoRegs, 4);
+                    lastCalibrationDate_YY = ModbusByteConversions.TwoModbusBigendianBytesToUshort(screwdriverInfoRegs, 8);
+                    lastCalibrationDate_MM = ModbusByteConversions.TwoModbusBigendianBytesToUshort(screwdriverInfoRegs, 10);
+                    lastCalibrationDate_DD = ModbusByteConversions.TwoModbusBigendianBytesToUshort(screwdriverInfoRegs, 12);
+
+                }
+                catch (ModbusException) { } // availability of the above depends on KDU version
+
+                return new KdsScrewdriver(model, serialNumber, fatC, cycles, cyclesAtLastCalibration, lastCalibrationDate_YY, lastCalibrationDate_MM, lastCalibrationDate_DD);
+            }
         }
 
         /// <summary>
@@ -2094,6 +2143,7 @@ namespace Kolver
         {
             mbClient.Dispose();
             asyncCommsCts.Dispose();
+            realtimeTimeTorqueAngleStreamingCts?.Dispose();
         }
     }
 #pragma warning restore CA1063 // the dispose implementation is correct

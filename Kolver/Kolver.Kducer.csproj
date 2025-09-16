@@ -3,7 +3,7 @@
   <PropertyGroup>
     <TargetFramework>netstandard2.0</TargetFramework>
     <SignAssembly>False</SignAssembly>
-    <Version>1.0.1</Version>
+    <Version>1.0.2</Version>
     <ProduceReferenceAssembly>True</ProduceReferenceAssembly>
     <GenerateDocumentationFile>True</GenerateDocumentationFile>
     <GeneratePackageOnBuild>True</GeneratePackageOnBuild>
@@ -21,9 +21,7 @@ Brought to you by Kolver www.kolver.com</Description>
     <PackageTags>kolver kducer k-ducer modbus modbusTCP torque screwdriver openprotocol open-protocol atlascopco atlas copco asg xpaq mountz cleco estic powerfocus powermacs toolsnet open protocol desoutter</PackageTags>
     <PackageReleaseNotes>
 		IMPORTANT: To restore compatibility with your projects, simply remove "NullLoggerFactory.Instance" from your calls to the Kducer constructor. We removed logging functionality and the dependency on Microsoft.Extensions.Logging.Abstractions.
-		support for KDU-1A v41
-		misc new methods and minor corrections
-		maintains backwards compatibility with older KDU-1A software versions</PackageReleaseNotes>
+		support for getting connected screwdriver information and generating default programs for the connected screwdriver</PackageReleaseNotes>
     <EnforceCodeStyleInBuild>True</EnforceCodeStyleInBuild>
     <EnableNETAnalyzers>True</EnableNETAnalyzers>
     <AnalysisLevel>6.0-all</AnalysisLevel>

@@ -4,6 +4,7 @@ using Kolver;
 using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Sockets;
+using System.Threading.Tasks;
 
 // note: some of these tests require a real KDU-1A controller to be connected to pass. some require using the screwdriver to pass.
 // all the tests are run and must pass before every commit to the main branch
@@ -93,6 +94,29 @@ namespace KducerTests
                     await kdu.ReadCoilsAsync(i, (ushort)(48 - i));
                 for (ushort i = 0; i < 32; i++)
                     await kdu.ReadDiscreteInputsAsync(i, (ushort)(32 - i));
+            }
+        }
+
+        [TestClass]
+        public class KdsScrewdriverTests
+        {
+            [TestMethod]
+            public void TestKdsConstructor()
+            {
+                KdsScrewdriver kds = new KdsScrewdriver(6, 2302471, 914, 500000, 52, (21657 & 0x7F), (21657 >> 7) & 0x0F, (21657 >> 11) & 0x1F);
+                Assert.IsTrue(kds.BaseModel.Id == ScrewdriverBaseModelId.KdsPl30);
+                Assert.IsTrue(kds.SerialNumber == 2302471);
+                Assert.IsTrue(kds.Cycles == 500000);
+                Assert.IsTrue(kds.CyclesAtLastCalibration == 52);
+                Assert.IsTrue(kds.LastCalibrationDate == new DateTime(2025, 9, 10));
+                Assert.IsTrue(kds.CalibrationFactorFatC == 914);
+            }
+
+            [TestMethod]
+            public async Task TestGetScrewdriverInfo()
+            {
+                using Kducer kdu = new Kducer(IPAddress.Parse(TestConstants.REAL_LIVE_KDU_IP));
+                Console.WriteLine(await kdu.GetScrewdriverInfoAsync());
             }
         }
 
@@ -870,6 +894,16 @@ namespace KducerTests
         [TestClass]
         public class KducerTighteningProgramTests
         {
+            [TestMethod]
+            public void TestKdsProgramFromScrewdriver()
+            {
+                KducerTighteningProgram n1 = new KducerTighteningProgram(ScrewdriverBaseModelId.KdsMt15);
+                KducerTighteningProgram n2 = new KducerTighteningProgram(ScrewdriverBaseModel.KdsMt15);
+                KducerTighteningProgram n3 = new KducerTighteningProgram("KDS-MT1.5");
+                Assert.IsTrue(n1.getProgramModbusHoldingRegistersAsByteArray().SequenceEqual(n2.getProgramModbusHoldingRegistersAsByteArray()));
+                Assert.IsTrue(n1.getProgramModbusHoldingRegistersAsByteArray().SequenceEqual(n3.getProgramModbusHoldingRegistersAsByteArray()));
+            }
+
             [TestMethod]
             [Timeout(1000)]
             public void TestSetValues()
