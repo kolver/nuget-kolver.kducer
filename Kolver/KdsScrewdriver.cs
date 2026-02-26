@@ -249,11 +249,14 @@ namespace Kolver
             else
                 CyclesAtLastCalibration = cyclesAtLastCalibration;
 
-            if(lastCalibrationDate_YY == 0xFFFF || lastCalibrationDate_MM == 0xFFFF || lastCalibrationDate_DD == 0xFFFF)
-                LastCalibrationDate = null;
-            else
+            try
+            {
                 LastCalibrationDate = new DateTime(2000 + lastCalibrationDate_YY, lastCalibrationDate_MM, lastCalibrationDate_DD);
-            //LastCalibrationDate = new DateTime(2000 + (lastCalibrationDate_u16 & 0x7F), (lastCalibrationDate_u16 >> 7) & 0x0F, (lastCalibrationDate_u16 >> 11) & 0x1F);
+            }
+            catch (ArgumentOutOfRangeException)
+            {
+                LastCalibrationDate = null;
+            }
         }
     }
 }
